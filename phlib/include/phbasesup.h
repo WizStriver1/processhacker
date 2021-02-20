@@ -99,8 +99,6 @@ PhDelayExecution(
 // Heap
 
 _May_raise_
-_Check_return_
-_Ret_notnull_
 _Post_writable_byte_size_(Size)
 PHLIBAPI
 PVOID
@@ -109,6 +107,9 @@ PhAllocate(
     _In_ SIZE_T Size
     );
 
+_Must_inspect_result_
+_Ret_maybenull_
+_Post_writable_byte_size_(Size)
 PHLIBAPI
 PVOID
 NTAPI
@@ -116,6 +117,9 @@ PhAllocateSafe(
     _In_ SIZE_T Size
     );
 
+_Must_inspect_result_
+_Ret_maybenull_
+_Post_writable_byte_size_(Size)
 PHLIBAPI
 PVOID
 NTAPI
@@ -164,7 +168,7 @@ PHLIBAPI
 VOID
 NTAPI
 PhFreePage(
-    _Post_invalid_ PVOID Memory
+    _In_ _Post_invalid_ PVOID Memory
     );
 
 FORCEINLINE
@@ -194,6 +198,23 @@ PhAllocateZero(
     memset(buffer, 0, Size);
 
     return buffer;
+}
+
+FORCEINLINE
+PVOID
+PhAllocateZeroSafe(
+    _In_ SIZE_T Size
+    )
+{
+    PVOID buffer;
+
+    if (buffer = PhAllocateSafe(Size))
+    {
+        memset(buffer, 0, Size);
+        return buffer;
+    }
+
+    return NULL;
 }
 
 // Event
@@ -1248,7 +1269,7 @@ PhGetStringOrEmpty(
     if (String)
         return String->Buffer;
     else
-        return L"";
+        return (PWSTR)TEXT(""); // HACK fixes VS2019 conformance mode warning (dmex)
 }
 
 /**
@@ -1278,14 +1299,19 @@ PhGetStringOrDefault(
  *
  * \param String A pointer to a string object.
  */
-FORCEINLINE
-BOOLEAN
-PhIsNullOrEmptyString(
-    _In_opt_ PPH_STRING String
-    )
-{
-    return !String || String->Length == 0;
-}
+//FORCEINLINE
+//BOOLEAN
+//PhIsNullOrEmptyString(
+//    _In_opt_ PPH_STRING String
+//    )
+//{
+//    return !String || String->Length == 0;
+//}
+
+// VS2019 can't parse the inline bool check for the above PhIsNullOrEmptyString
+// inline function creating invalid C6387 warnings using the input string (dmex)
+#define PhIsNullOrEmptyString(string) \
+    (!(string) || (string)->Length == 0)
 
 /**
  * Duplicates a string.
@@ -1558,10 +1584,10 @@ PhFindCharInString(
         PhSkipStringRef(&sr, StartIndex * sizeof(WCHAR));
         r = PhFindCharInStringRef(&sr, Char, FALSE);
 
-        if (r != -1)
+        if (r != SIZE_MAX)
             return r + StartIndex;
         else
-            return -1;
+            return SIZE_MAX;
     }
     else
     {
@@ -1596,10 +1622,10 @@ PhFindLastCharInString(
         PhSkipStringRef(&sr, StartIndex * sizeof(WCHAR));
         r = PhFindLastCharInStringRef(&sr, Char, FALSE);
 
-        if (r != -1)
+        if (r != SIZE_MAX)
             return r + StartIndex;
         else
-            return -1;
+            return SIZE_MAX;
     }
     else
     {
@@ -1638,10 +1664,10 @@ PhFindStringInString(
         PhSkipStringRef(&sr1, StartIndex * sizeof(WCHAR));
         r = PhFindStringInStringRef(&sr1, &sr2, FALSE);
 
-        if (r != -1)
+        if (r != SIZE_MAX)
             return r + StartIndex;
         else
-            return -1;
+            return SIZE_MAX;
     }
     else
     {
@@ -1744,6 +1770,16 @@ PhCreateBytes2(
 {
     return PhCreateBytesEx(Bytes->Buffer, Bytes->Length);
 }
+
+PPH_BYTES PhFormatBytes_V(
+    _In_ _Printf_format_string_ PSTR Format,
+    _In_ va_list ArgPtr
+    );
+
+PPH_BYTES PhFormatBytes(
+    _In_ _Printf_format_string_ PSTR Format,
+    ...
+    );
 
 // Unicode
 
@@ -2339,6 +2375,17 @@ typedef struct _PH_LIST
     PVOID *Items;
 } PH_LIST, *PPH_LIST;
 
+
+FORCEINLINE
+PVOID
+PhItemList(
+    _In_ PPH_LIST List,
+    _In_ ULONG Index
+    )
+{
+    return List->Items[Index];
+}
+
 PHLIBAPI
 PPH_LIST
 NTAPI
@@ -2856,13 +2903,9 @@ typedef struct _PH_HASHTABLE
     ULONG NextEntry;
 } PH_HASHTABLE, *PPH_HASHTABLE;
 
-#define PH_HASHTABLE_ENTRY_SIZE(InnerSize) (UFIELD_OFFSET(PH_HASHTABLE_ENTRY, Body) + (InnerSize))
-#define PH_HASHTABLE_GET_ENTRY(Hashtable, Index) \
-    ((PPH_HASHTABLE_ENTRY)PTR_ADD_OFFSET((Hashtable)->Entries, \
-    PH_HASHTABLE_ENTRY_SIZE((Hashtable)->EntrySize) * (Index)))
-#define PH_HASHTABLE_GET_ENTRY_INDEX(Hashtable, Entry) \
-    ((ULONG)(PTR_ADD_OFFSET(Entry, -(Hashtable)->Entries) / \
-    PH_HASHTABLE_ENTRY_SIZE((Hashtable)->EntrySize)))
+#define PH_HASHTABLE_ENTRY_SIZE(InnerSize) (UInt32Add32To64(UFIELD_OFFSET(PH_HASHTABLE_ENTRY, Body), (InnerSize)))
+#define PH_HASHTABLE_GET_ENTRY(Hashtable, Index) ((PPH_HASHTABLE_ENTRY)PTR_ADD_OFFSET((Hashtable)->Entries, UInt32Mul32To64(PH_HASHTABLE_ENTRY_SIZE((Hashtable)->EntrySize), (Index))))
+#define PH_HASHTABLE_GET_ENTRY_INDEX(Hashtable, Entry) ((ULONG)(PTR_ADD_OFFSET(Entry, -(Hashtable)->Entries) / PH_HASHTABLE_ENTRY_SIZE((Hashtable)->EntrySize)))
 
 PHLIBAPI
 PPH_HASHTABLE
@@ -3440,6 +3483,20 @@ PhaFormatString(
     va_start(argptr, Format);
 
     return PH_AUTO_T(PH_STRING, PhFormatString_V(Format, argptr));
+}
+
+FORCEINLINE
+PPH_STRING
+PhLowerString(
+    _In_ PPH_STRING String
+    )
+{
+    PPH_STRING newString;
+
+    newString = PhDuplicateString(String);
+    _wcslwr(newString->Buffer);
+
+    return newString;
 }
 
 FORCEINLINE

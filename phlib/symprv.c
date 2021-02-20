@@ -275,8 +275,10 @@ VOID PhpSymbolProviderCompleteInitialization(
         PPH_STRING dbghelpName;
         PPH_STRING symsrvName;
 
-#ifdef _WIN64
+#if defined(_M_AMD64)
         PhMoveReference(&winsdkPath, PhConcatStringRefZ(&winsdkPath->sr, L"\\Debuggers\\x64\\"));
+#elif defined(_M_ARM64)
+        PhMoveReference(&winsdkPath, PhConcatStringRefZ(&winsdkPath->sr, L"\\Debuggers\\arm64\\"));
 #else
         PhMoveReference(&winsdkPath, PhConcatStringRefZ(&winsdkPath->sr, L"\\Debuggers\\x86\\"));
 #endif
@@ -429,8 +431,7 @@ BOOLEAN PhGetLineFromAddress(
 
     if (result)
         fileName = PhCreateString(line.FileName);
-
-    if (!result)
+    else
         return FALSE;
 
     *FileName = fileName;

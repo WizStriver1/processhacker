@@ -3,7 +3,7 @@
  *   about dialog
  *
  * Copyright (C) 2010-2016 wj32
- * Copyright (C) 2017-2020 dmex
+ * Copyright (C) 2017-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -56,10 +56,11 @@ static INT_PTR CALLBACK PhpAboutDlgProc(
 
 #if (PHAPP_VERSION_REVISION != 0)
             appName = PhFormatString(
-                L"Process Hacker %lu.%lu.%lu (%hs)",
+                L"Process Hacker %lu.%lu.%lu (<a href=\"https://github.com/processhacker/processhacker/commit/%hs\">%hs</a>)",
                 PHAPP_VERSION_MAJOR,
                 PHAPP_VERSION_MINOR,
                 PHAPP_VERSION_REVISION,
+                PHAPP_VERSION_COMMIT,
                 PHAPP_VERSION_COMMIT
                 );
 #else
@@ -127,6 +128,7 @@ static INT_PTR CALLBACK PhpAboutDlgProc(
                 {
                     switch (header->idFrom)
                     {
+                    case IDC_ABOUT_NAME:
                     case IDC_CREDITS:
                     case IDC_LINK_SF:
                         PhShellExecute(hwndDlg, ((PNMLINK)header)->item.szUrl, NULL);
@@ -176,23 +178,6 @@ FORCEINLINE ULONG PhpGetObjectTypeObjectCount(
     return info.NumberOfObjects;
 }
 
-PPH_STRING PhpGetBuildTimeDiagnostics(
-    VOID
-    )
-{
-    LARGE_INTEGER time;
-    SYSTEMTIME systemTime = { 0 };
-    PIMAGE_DOS_HEADER imageDosHeader;
-    PIMAGE_NT_HEADERS imageNtHeader;
-
-    imageDosHeader = (PIMAGE_DOS_HEADER)PhInstanceHandle; // HACK
-    imageNtHeader = (PIMAGE_NT_HEADERS)PTR_ADD_OFFSET(imageDosHeader, imageDosHeader->e_lfanew);
-    RtlSecondsSince1970ToTime(imageNtHeader->FileHeader.TimeDateStamp, &time);
-    PhLargeIntegerToLocalSystemTime(&systemTime, &time);
-
-    return PhaFormatDateTime(&systemTime);
-}
-
 PPH_STRING PhGetDiagnosticsString(
     VOID
     )
@@ -203,26 +188,24 @@ PPH_STRING PhGetDiagnosticsString(
 
 #if (PHAPP_VERSION_REVISION != 0)
     PhAppendFormatStringBuilder(&stringBuilder,
-        L"Process Hacker\r\nVersion: %lu.%lu.%lu (%hs)\r\n",
+        L"Process Hacker\r\nVersion: %lu.%lu.%lu (%hs)\r\n\r\n",
         PHAPP_VERSION_MAJOR,
         PHAPP_VERSION_MINOR,
         PHAPP_VERSION_REVISION,
         PHAPP_VERSION_COMMIT
         );
-    PhAppendFormatStringBuilder(&stringBuilder, L"Compiled: %s\r\n\r\n", PhpGetBuildTimeDiagnostics()->Buffer);
 #else
     PhAppendFormatStringBuilder(&stringBuilder,
-        L"Process Hacker\r\nVersion: %lu.%lu\r\n",
+        L"Process Hacker\r\nVersion: %lu.%lu\r\n\r\n",
         PHAPP_VERSION_MAJOR,
         PHAPP_VERSION_MINOR
         );
-    PhAppendFormatStringBuilder(&stringBuilder, L"Compiled: %s\r\n\r\n", PhpGetBuildTimeDiagnostics()->Buffer);
 #endif
 
     PhAppendFormatStringBuilder(&stringBuilder, L"OBJECT INFORMATION\r\n");
 
 #define OBJECT_TYPE_COUNT(Type) PhAppendFormatStringBuilder(&stringBuilder, \
-    L#Type L": %lu objects\r\n", PhpGetObjectTypeObjectCount(Type))
+    TEXT(#Type) L": %lu objects\r\n", PhpGetObjectTypeObjectCount(Type))
 
     // ref
     OBJECT_TYPE_COUNT(PhObjectTypeObject);
@@ -247,6 +230,7 @@ PPH_STRING PhGetDiagnosticsString(
     OBJECT_TYPE_COUNT(PhHandleProviderType);
     OBJECT_TYPE_COUNT(PhHandleItemType);
     OBJECT_TYPE_COUNT(PhMemoryItemType);
+    OBJECT_TYPE_COUNT(PhImageListItemType);
 
     return PhFinalStringBuilderString(&stringBuilder);
 }

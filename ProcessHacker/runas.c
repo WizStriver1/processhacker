@@ -977,13 +977,14 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
 
             PhCenterWindow(hwndDlg, PhMainWndHandle);
 
+            if (PhGetIntegerSetting(L"RunAsEnableAutoComplete"))
             {
                 COMBOBOXINFO info = { sizeof(COMBOBOXINFO) };
 
                 if (SendMessage(context->ProgramComboBoxWindowHandle, CB_GETCOMBOBOXINFO, 0, (LPARAM)&info))
                 {
-                    if (SHAutoComplete)
-                        SHAutoComplete(info.hwndItem, SHACF_DEFAULT);
+                    if (SHAutoComplete_Import())
+                        SHAutoComplete_Import()(info.hwndItem, SHACF_DEFAULT);
                 }
             }
 
@@ -1236,7 +1237,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
 
                             status = PhCreateProcessAsUser(
                                 &createInfo,
-                                PH_CREATE_PROCESS_WITH_PROFILE | (createSuspended ? PH_CREATE_PROCESS_SUSPENDED : 0),
+                                PH_CREATE_PROCESS_WITH_PROFILE | PH_CREATE_PROCESS_DEFAULT_ERROR_MODE | (createSuspended ? PH_CREATE_PROCESS_SUSPENDED : 0),
                                 NULL,
                                 NULL,
                                 NULL
@@ -1273,6 +1274,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                                 if (!NT_SUCCESS(status))
                                     goto CleanupExit;
 
+#if (PHNT_VERSION >= PHNT_WIN7)
                                 if (!InitializeProcThreadAttributeList(NULL, 1, 0, &attributeListLength) && GetLastError() != ERROR_INSUFFICIENT_BUFFER)
                                 {
                                     status = PhGetLastWin32ErrorAsNtStatus();
@@ -1292,7 +1294,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                                     status = PhGetLastWin32ErrorAsNtStatus();
                                     goto CleanupExit;
                                 }
-
+#endif
                                 if (PhGetOwnTokenAttributes().Elevated)
                                 {
                                     PhGetObjectSecurity(
@@ -1331,7 +1333,7 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                                     environment,
                                     NULL,
                                     &startupInfo.StartupInfo,
-                                    PH_CREATE_PROCESS_SUSPENDED | PH_CREATE_PROCESS_NEW_CONSOLE | PH_CREATE_PROCESS_EXTENDED_STARTUPINFO | flags,
+                                    PH_CREATE_PROCESS_SUSPENDED | PH_CREATE_PROCESS_NEW_CONSOLE | PH_CREATE_PROCESS_EXTENDED_STARTUPINFO | PH_CREATE_PROCESS_DEFAULT_ERROR_MODE | flags,
                                     NULL,
                                     NULL,
                                     &newProcessHandle,
@@ -1398,13 +1400,13 @@ INT_PTR CALLBACK PhpRunAsDlgProc(
                                 {
                                     PhFree(processSecurityDescriptor);
                                 }
-
+#if (PHNT_VERSION >= PHNT_WIN7)
                                 if (startupInfo.lpAttributeList)
                                 {
                                     DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
                                     PhFree(startupInfo.lpAttributeList);
                                 }
-
+#endif
                                 if (processHandle)
                                 {
                                     NtClose(processHandle);
@@ -1954,7 +1956,7 @@ NTSTATUS PhInvokeRunAsService(
     createInfo.SessionId = Parameters->SessionId;
     createInfo.DesktopName = Parameters->DesktopName;
 
-    flags = PH_CREATE_PROCESS_SET_SESSION_ID;
+    flags = PH_CREATE_PROCESS_SET_SESSION_ID | PH_CREATE_PROCESS_DEFAULT_ERROR_MODE;
 
     if (Parameters->ProcessId)
     {
@@ -2275,6 +2277,7 @@ NTSTATUS PhpRunFileProgram(
         if (!NT_SUCCESS(status))
             goto CleanupExit;
 
+#if (PHNT_VERSION >= PHNT_WIN7)
         if (!InitializeProcThreadAttributeList(NULL, 1, 0, &attributeListLength) && GetLastError() != ERROR_INSUFFICIENT_BUFFER)
         {
             status = PhGetLastWin32ErrorAsNtStatus();
@@ -2294,7 +2297,7 @@ NTSTATUS PhpRunFileProgram(
             status = PhGetLastWin32ErrorAsNtStatus();
             goto CleanupExit;
         }
-
+#endif
         if (PhGetOwnTokenAttributes().Elevated)
         {
             PhGetObjectSecurity(
@@ -2333,7 +2336,7 @@ NTSTATUS PhpRunFileProgram(
             environment,
             PhGetString(parentDirectory),
             &startupInfo.StartupInfo,
-            PH_CREATE_PROCESS_SUSPENDED | PH_CREATE_PROCESS_NEW_CONSOLE | PH_CREATE_PROCESS_EXTENDED_STARTUPINFO | flags,
+            PH_CREATE_PROCESS_SUSPENDED | PH_CREATE_PROCESS_NEW_CONSOLE | PH_CREATE_PROCESS_EXTENDED_STARTUPINFO | PH_CREATE_PROCESS_DEFAULT_ERROR_MODE | flags,
             NULL,
             NULL,
             &newProcessHandle,
@@ -2411,12 +2414,13 @@ NTSTATUS PhpRunFileProgram(
             PhFree(processSecurityDescriptor);
         }
 
+#if (PHNT_VERSION >= PHNT_WIN7)
         if (startupInfo.lpAttributeList)
         {
             DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
             PhFree(startupInfo.lpAttributeList);
         }
-
+#endif
         if (processHandle)
         {
             NtClose(processHandle);
@@ -2519,7 +2523,7 @@ NTSTATUS RunAsCreateProcessThread(
     if (!NT_SUCCESS(status = PhOpenProcess(&processHandle, PROCESS_CREATE_PROCESS, UlongToHandle(serviceStatus.dwProcessId))))
         goto CleanupExit;
 
-
+#if (PHNT_VERSION >= PHNT_WIN7)
     if (!InitializeProcThreadAttributeList(NULL, 1, 0, &attributeListLength) && GetLastError() != ERROR_INSUFFICIENT_BUFFER)
     {
         status = PhGetLastWin32ErrorAsNtStatus();
@@ -2539,6 +2543,7 @@ NTSTATUS RunAsCreateProcessThread(
         status = PhGetLastWin32ErrorAsNtStatus();
         goto CleanupExit;
     }
+#endif
 
     AllowSetForegroundWindow(ASFW_ANY);
 
@@ -2548,7 +2553,7 @@ NTSTATUS RunAsCreateProcessThread(
         NULL,
         NULL,
         &startupInfo.StartupInfo,
-        PH_CREATE_PROCESS_NEW_CONSOLE | PH_CREATE_PROCESS_EXTENDED_STARTUPINFO,
+        PH_CREATE_PROCESS_NEW_CONSOLE | PH_CREATE_PROCESS_EXTENDED_STARTUPINFO | PH_CREATE_PROCESS_DEFAULT_ERROR_MODE,
         NULL,
         NULL,
         NULL,
@@ -2563,11 +2568,13 @@ CleanupExit:
     if (serviceHandle)
         CloseServiceHandle(serviceHandle);
 
+#if (PHNT_VERSION >= PHNT_WIN7)
     if (startupInfo.lpAttributeList)
     {
         DeleteProcThreadAttributeList(startupInfo.lpAttributeList);
         PhFree(startupInfo.lpAttributeList);
     }
+#endif
 
     if (commandLine)
     {
@@ -2619,13 +2626,14 @@ INT_PTR CALLBACK PhpRunFileWndProc(
             PhpAddProgramsToComboBox(context->ComboBoxHandle);
             ComboBox_SetCurSel(context->ComboBoxHandle, 0);
 
+            if (PhGetIntegerSetting(L"RunAsEnableAutoComplete"))
             {
                 COMBOBOXINFO info = { sizeof(COMBOBOXINFO) };
 
                 if (SendMessage(context->ComboBoxHandle, CB_GETCOMBOBOXINFO, 0, (LPARAM)& info))
                 {
-                    if (SHAutoComplete && info.hwndItem)
-                        SHAutoComplete(info.hwndItem, SHACF_DEFAULT);
+                    if (SHAutoComplete_Import() && info.hwndItem)
+                        SHAutoComplete_Import()(info.hwndItem, SHACF_DEFAULT);
                 }
             }
 
@@ -2649,7 +2657,7 @@ INT_PTR CALLBACK PhpRunFileWndProc(
                     context->ImageListHandle = ImageList_Create(
                         PhSmallIconSize.X,
                         PhSmallIconSize.Y,
-                        ILC_COLOR32,
+                        ILC_MASK | ILC_COLOR32,
                         1,
                         1
                         );

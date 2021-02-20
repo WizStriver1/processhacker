@@ -3,7 +3,8 @@
  *   process tree list
  *
  * Copyright (C) 2010-2016 wj32
- * Copyright (C) 2016-2020 dmex
+ * Copyright (C) 2016-2021 dmex
+ * Copyright (C) 2021 jxy-s
  *
  * This file is part of Process Hacker.
  *
@@ -41,6 +42,7 @@
 #include <colmgr.h>
 #include <extmgri.h>
 #include <mainwnd.h>
+#include <math.h>
 #include <phplug.h>
 #include <phsettings.h>
 #include <procprv.h>
@@ -60,7 +62,8 @@ typedef enum _PHP_AGGREGATE_LOCATION
 } PHP_AGGREGATE_LOCATION;
 
 VOID PhpRemoveProcessNode(
-    _In_ PPH_PROCESS_NODE ProcessNode
+    _In_ PPH_PROCESS_NODE ProcessNode,
+    _In_opt_ PVOID Context
     );
 
 LONG PhpProcessTreeNewPostSortFunction(
@@ -76,6 +79,11 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
     _In_opt_ PVOID Parameter1,
     _In_opt_ PVOID Parameter2,
     _In_opt_ PVOID Context
+    );
+
+BOOLEAN PhpShouldShowImageCoherency(
+    _In_ PPH_PROCESS_ITEM ProcessItem,
+    _In_ BOOLEAN CheckThreshold
     );
 
 static HWND ProcessTreeListHandle;
@@ -98,6 +106,8 @@ static HBITMAP GraphOldBitmap;
 static HBITMAP GraphBitmap = NULL;
 static PVOID GraphBits = NULL;
 
+static FLOAT LowImageCoherencyThreshold = 0.5f; /**< Limit for displaying "low image coherency" */
+
 VOID PhProcessTreeListInitialization(
     VOID
     )
@@ -116,13 +126,14 @@ VOID PhInitializeProcessTreeList(
     SendMessage(TreeNew_GetTooltips(ProcessTreeListHandle), TTM_SETDELAYTIME, TTDT_AUTOPOP, MAXSHORT);
 
     TreeNew_SetCallback(hwnd, PhpProcessTreeNewCallback, NULL);
+    TreeNew_SetImageList(hwnd, PhProcessSmallImageList);
 
     TreeNew_SetMaxId(hwnd, PHPRTLC_MAXIMUM - 1);
 
     TreeNew_SetRedraw(hwnd, FALSE);
 
     // Default columns
-    PhAddTreeNewColumn(hwnd, PHPRTLC_NAME, TRUE, L"Name", 200, PH_ALIGN_LEFT, -2, 0);
+    PhAddTreeNewColumn(hwnd, PHPRTLC_NAME, TRUE, L"Name", 200, PH_ALIGN_LEFT, (PhGetIntegerSetting(L"ProcessTreeListNameDefault") ? -2 : 0), 0); // HACK (dmex)
     PhAddTreeNewColumn(hwnd, PHPRTLC_PID, TRUE, L"PID", 50, PH_ALIGN_RIGHT, 0, DT_RIGHT);
     PhAddTreeNewColumnEx(hwnd, PHPRTLC_CPU, TRUE, L"CPU", 45, PH_ALIGN_RIGHT, 1, DT_RIGHT, TRUE);
     PhAddTreeNewColumnEx(hwnd, PHPRTLC_IOTOTALRATE, TRUE, L"I/O total rate", 70, PH_ALIGN_RIGHT, 2, DT_RIGHT, TRUE);
@@ -216,6 +227,11 @@ VOID PhInitializeProcessTreeList(
     PhAddTreeNewColumnEx(hwnd, PHPRTLC_CRITICAL, FALSE, L"Critical", 80, PH_ALIGN_LEFT, ULONG_MAX, 0, TRUE);
     PhAddTreeNewColumnEx(hwnd, PHPRTLC_PIDHEX, FALSE, L"PID (Hex)", 50, PH_ALIGN_RIGHT, ULONG_MAX, DT_RIGHT, TRUE);
     PhAddTreeNewColumnEx(hwnd, PHPRTLC_CPUCORECYCLES, FALSE, L"CPU (relative)", 45, PH_ALIGN_RIGHT, ULONG_MAX, DT_RIGHT, TRUE);
+    PhAddTreeNewColumnEx(hwnd, PHPRTLC_CET, FALSE, L"CET", 45, PH_ALIGN_LEFT, ULONG_MAX, 0, TRUE);
+    PhAddTreeNewColumnEx(hwnd, PHPRTLC_IMAGE_COHERENCY, FALSE, L"Image coherency", 70, PH_ALIGN_RIGHT, ULONG_MAX, DT_RIGHT, TRUE);
+    PhAddTreeNewColumnEx(hwnd, PHPRTLC_ERRORMODE, FALSE, L"Error mode", 70, PH_ALIGN_LEFT, ULONG_MAX, 0, TRUE);
+    PhAddTreeNewColumnEx(hwnd, PHPRTLC_CODEPAGE, FALSE, L"Code page", 70, PH_ALIGN_LEFT, ULONG_MAX, 0, TRUE);
+    PhAddTreeNewColumnEx2(hwnd, PHPRTLC_TIMELINE, FALSE, L"Timeline", 100, PH_ALIGN_LEFT, ULONG_MAX, 0, TN_COLUMN_FLAG_CUSTOMDRAW | TN_COLUMN_FLAG_SORTDESCENDING);
 
     TreeNew_SetRedraw(hwnd, TRUE);
 
@@ -486,12 +502,13 @@ VOID PhRemoveProcessNode(
     }
     else
     {
-        PhpRemoveProcessNode(ProcessNode);
+        PhpRemoveProcessNode(ProcessNode, NULL);
     }
 }
 
 VOID PhpRemoveProcessNode(
-    _In_ PPH_PROCESS_NODE ProcessNode
+    _In_ PPH_PROCESS_NODE ProcessNode,
+    _In_opt_ PVOID Context
     )
 {
     ULONG index;
@@ -570,6 +587,8 @@ VOID PhpRemoveProcessNode(
     PhClearReference(&ProcessNode->SubprocessCountText);
     PhClearReference(&ProcessNode->ProtectionText);
     PhClearReference(&ProcessNode->DesktopInfoText);
+    PhClearReference(&ProcessNode->ImageCoherencyStatusText);
+    PhClearReference(&ProcessNode->CodePageText);
 
     PhDeleteGraphBuffers(&ProcessNode->CpuGraphBuffers);
     PhDeleteGraphBuffers(&ProcessNode->PrivateGraphBuffers);
@@ -611,7 +630,7 @@ VOID PhTickProcessNodes(
 
         // The name and PID never change, so we don't invalidate that.
         memset(&node->TextCache[2], 0, sizeof(PH_STRINGREF) * (PHPRTLC_MAXIMUM - 2));
-        node->ValidMask &= PHPN_OSCONTEXT | PHPN_IMAGE | PHPN_DPIAWARENESS | PHPN_APPID | PHPN_DESKTOPINFO; // Items that always remain valid
+        node->ValidMask &= PHPN_OSCONTEXT | PHPN_IMAGE | PHPN_DPIAWARENESS | PHPN_APPID | PHPN_DESKTOPINFO | PHPN_CODEPAGE; // Items that always remain valid
 
         // The DPI awareness defaults to unaware if not set or declared in the manifest in which case
         // it can be changed once, so we can only be sure that it won't be changed again if it is different
@@ -635,9 +654,9 @@ VOID PhTickProcessNodes(
     }
 
     // State highlighting
-    PH_TICK_SH_STATE_TN(PH_PROCESS_NODE, ShState, ProcessNodeStateList, PhpRemoveProcessNode, PhCsHighlightingDuration, ProcessTreeListHandle, TRUE, &fullyInvalidated);
+    PH_TICK_SH_STATE_TN(PH_PROCESS_NODE, ShState, ProcessNodeStateList, PhpRemoveProcessNode, PhCsHighlightingDuration, ProcessTreeListHandle, TRUE, &fullyInvalidated, NULL);
 
-    if (!fullyInvalidated)
+    if (ProcessTreeListHandle && !fullyInvalidated)
     {
         // The first column doesn't need to be invalidated because the process name never changes, and
         // icon changes are handled by the modified event. This small optimization can save more than
@@ -684,8 +703,11 @@ static VOID PhpNeedGraphContext(
     header.biHeight = Height;
     header.biPlanes = 1;
     header.biBitCount = 32;
-    GraphBitmap = CreateDIBSection(hdc, (BITMAPINFO *)&header, DIB_RGB_COLORS, &GraphBits, NULL, 0);
-    GraphOldBitmap = SelectBitmap(GraphContext, GraphBitmap);
+
+    if (GraphBitmap = CreateDIBSection(hdc, (BITMAPINFO*)&header, DIB_RGB_COLORS, &GraphBits, NULL, 0))
+    {
+        GraphOldBitmap = SelectBitmap(GraphContext, GraphBitmap);
+    }
 }
 
 _Success_(return)
@@ -807,17 +829,14 @@ static VOID PhpUpdateProcessNodeWsCounters(
     if (!(ProcessNode->ValidMask & PHPN_WSCOUNTERS))
     {
         BOOLEAN success = FALSE;
-        HANDLE processHandle;
 
-        if (PH_IS_REAL_PROCESS_ID(ProcessNode->ProcessItem->ProcessId))
+        if (
+            PH_IS_REAL_PROCESS_ID(ProcessNode->ProcessItem->ProcessId) &&
+            ProcessNode->ProcessItem->IsHandleValid // PROCESS_QUERY_INFORMATION
+            )
         {
-            if (NT_SUCCESS(PhOpenProcess(&processHandle, PROCESS_QUERY_INFORMATION, ProcessNode->ProcessItem->ProcessId)))
-            {
-                if (NT_SUCCESS(PhGetProcessWsCounters(processHandle, &ProcessNode->WsCounters)))
-                    success = TRUE;
-
-                NtClose(processHandle);
-            }
+            if (NT_SUCCESS(PhGetProcessWsCounters(ProcessNode->ProcessItem->QueryHandle, &ProcessNode->WsCounters)))
+                success = TRUE;
         }
 
         if (!success)
@@ -908,26 +927,19 @@ static VOID PhpUpdateProcessNodeDepStatus(
 {
     if (!(ProcessNode->ValidMask & PHPN_DEPSTATUS))
     {
-        HANDLE processHandle;
-        ULONG depStatus;
-
-        depStatus = 0;
+        ULONG depStatus = 0;
 
 #ifdef _WIN64
-        if (ProcessNode->ProcessItem->IsWow64)
+        if (
+            PH_IS_REAL_PROCESS_ID(ProcessNode->ProcessItem->ProcessId) &&
+            ProcessNode->ProcessItem->IsWow64 &&
+            ProcessNode->ProcessItem->IsHandleValid // PROCESS_QUERY_INFORMATION 
+            )
 #else
-        if (TRUE)
+        if (PH_IS_REAL_PROCESS_ID(ProcessNode->ProcessItem->ProcessId) && ProcessNode->ProcessItem->QueryHandle)
 #endif
         {
-            if (NT_SUCCESS(PhOpenProcess(
-                &processHandle,
-                PROCESS_QUERY_INFORMATION,
-                ProcessNode->ProcessItem->ProcessId
-                )))
-            {
-                PhGetProcessDepStatus(processHandle, &depStatus);
-                NtClose(processHandle);
-            }
+            PhGetProcessDepStatus(ProcessNode->ProcessItem->QueryHandle, &depStatus);
         }
         else
         {
@@ -989,25 +1001,28 @@ static VOID PhpUpdateProcessOsContext(
         {
             NOTHING;
         }
-        else if (NT_SUCCESS(PhOpenProcess(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, ProcessNode->ProcessId)))
+        else if (PH_IS_REAL_PROCESS_ID(ProcessNode->ProcessItem->ProcessId))
         {
-            if (NT_SUCCESS(PhGetProcessSwitchContext(processHandle, &ProcessNode->OsContextGuid)))
+            if (NT_SUCCESS(PhOpenProcess(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, ProcessNode->ProcessId)))
             {
-                if (IsEqualGUID(&ProcessNode->OsContextGuid, &WIN10_CONTEXT_GUID))
-                    ProcessNode->OsContextVersion = WINDOWS_10;
-                else if (IsEqualGUID(&ProcessNode->OsContextGuid, &WINBLUE_CONTEXT_GUID))
-                    ProcessNode->OsContextVersion = WINDOWS_8_1;
-                else if (IsEqualGUID(&ProcessNode->OsContextGuid, &WIN8_CONTEXT_GUID))
-                    ProcessNode->OsContextVersion = WINDOWS_8;
-                else if (IsEqualGUID(&ProcessNode->OsContextGuid, &WIN7_CONTEXT_GUID))
-                    ProcessNode->OsContextVersion = WINDOWS_7;
-                else if (IsEqualGUID(&ProcessNode->OsContextGuid, &VISTA_CONTEXT_GUID))
-                    ProcessNode->OsContextVersion = WINDOWS_VISTA;
-                else if (IsEqualGUID(&ProcessNode->OsContextGuid, &XP_CONTEXT_GUID))
-                    ProcessNode->OsContextVersion = WINDOWS_XP;
-            }
+                if (NT_SUCCESS(PhGetProcessSwitchContext(processHandle, &ProcessNode->OsContextGuid)))
+                {
+                    if (IsEqualGUID(&ProcessNode->OsContextGuid, &WIN10_CONTEXT_GUID))
+                        ProcessNode->OsContextVersion = WINDOWS_10;
+                    else if (IsEqualGUID(&ProcessNode->OsContextGuid, &WINBLUE_CONTEXT_GUID))
+                        ProcessNode->OsContextVersion = WINDOWS_8_1;
+                    else if (IsEqualGUID(&ProcessNode->OsContextGuid, &WIN8_CONTEXT_GUID))
+                        ProcessNode->OsContextVersion = WINDOWS_8;
+                    else if (IsEqualGUID(&ProcessNode->OsContextGuid, &WIN7_CONTEXT_GUID))
+                        ProcessNode->OsContextVersion = WINDOWS_7;
+                    else if (IsEqualGUID(&ProcessNode->OsContextGuid, &VISTA_CONTEXT_GUID))
+                        ProcessNode->OsContextVersion = WINDOWS_VISTA;
+                    else if (IsEqualGUID(&ProcessNode->OsContextGuid, &XP_CONTEXT_GUID))
+                        ProcessNode->OsContextVersion = WINDOWS_XP;
+                }
 
-            NtClose(processHandle);
+                NtClose(processHandle);
+            }
         }
 
         ProcessNode->ValidMask |= PHPN_OSCONTEXT;
@@ -1050,7 +1065,7 @@ static VOID PhpUpdateProcessNodeImage(
         {
             ProcessNode->ImageSubsystem = IMAGE_SUBSYSTEM_POSIX_CUI;
         }
-        else
+        else if (PH_IS_REAL_PROCESS_ID(ProcessNode->ProcessItem->ProcessId))
         {
             HANDLE processHandle;
             PROCESS_BASIC_INFORMATION basicInfo;
@@ -1255,20 +1270,23 @@ static VOID PhpUpdateProcessNodeDesktopInfo(
 
         PhClearReference(&ProcessNode->DesktopInfoText);
 
-        if (NT_SUCCESS(PhOpenProcess(
-            &processHandle,
-            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
-            ProcessNode->ProcessId
-            )))
+        if (PH_IS_REAL_PROCESS_ID(ProcessNode->ProcessItem->ProcessId))
         {
-            PPH_STRING desktopinfo;
-
-            if (NT_SUCCESS(PhGetProcessDesktopInfo(processHandle, &desktopinfo)))
+            if (NT_SUCCESS(PhOpenProcess(
+                &processHandle,
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                ProcessNode->ProcessId
+                )))
             {
-                ProcessNode->DesktopInfoText = desktopinfo;
-            }
+                PPH_STRING desktopinfo;
 
-            NtClose(processHandle);
+                if (NT_SUCCESS(PhGetProcessDesktopInfo(processHandle, &desktopinfo)))
+                {
+                    ProcessNode->DesktopInfoText = desktopinfo;
+                }
+
+                NtClose(processHandle);
+            }
         }
 
         ProcessNode->ValidMask |= PHPN_DESKTOPINFO;
@@ -1297,6 +1315,93 @@ static VOID PhpUpdateProcessBreakOnTermination(
         }
 
         ProcessNode->ValidMask |= PHPN_CRITICAL;
+    }
+}
+
+static VOID PhpUpdateProcessNodeErrorMode(
+    _Inout_ PPH_PROCESS_NODE ProcessNode
+    )
+{
+    if (!(ProcessNode->ValidMask & PHPN_ERRORMODE))
+    {
+        PhClearReference(&ProcessNode->ErrorModeText);
+
+        if (ProcessNode->ProcessItem->QueryHandle)
+        {
+            ULONG errorMode;
+
+            if (NT_SUCCESS(PhGetProcessErrorMode(
+                ProcessNode->ProcessItem->QueryHandle,
+                &errorMode
+                )) && errorMode > 0)
+            {
+                PH_STRING_BUILDER stringBuilder;
+                WCHAR pointer[PH_PTR_STR_LEN_1];
+
+                PhInitializeStringBuilder(&stringBuilder, 0x50);
+
+                if (errorMode & SEM_FAILCRITICALERRORS)
+                {
+                    PhAppendStringBuilder2(&stringBuilder, L"Fail critical, ");
+                }
+
+                if (errorMode & SEM_NOGPFAULTERRORBOX)
+                {
+                    PhAppendStringBuilder2(&stringBuilder, L"GP faults, ");
+                }
+
+                if (errorMode & SEM_NOALIGNMENTFAULTEXCEPT)
+                {
+                    PhAppendStringBuilder2(&stringBuilder, L"Alignment faults, ");
+                }
+
+                if (errorMode & SEM_NOOPENFILEERRORBOX)
+                {
+                    PhAppendStringBuilder2(&stringBuilder, L"Openfile faults, ");
+                }
+
+                if (PhEndsWithString2(stringBuilder.String, L", ", FALSE))
+                    PhRemoveEndStringBuilder(&stringBuilder, 2);
+
+                PhPrintPointer(pointer, UlongToPtr(errorMode));
+                PhAppendFormatStringBuilder(&stringBuilder, L" (%s)", pointer);
+
+                ProcessNode->ErrorModeText = PhFinalStringBuilderString(&stringBuilder);
+            }
+        }
+
+        ProcessNode->ValidMask |= PHPN_ERRORMODE;
+    }
+}
+
+static VOID PhpUpdateProcessNodeCodePage(
+    _Inout_ PPH_PROCESS_NODE ProcessNode
+    )
+{
+    if (!(ProcessNode->ValidMask & PHPN_CODEPAGE))
+    {
+        if (PH_IS_REAL_PROCESS_ID(ProcessNode->ProcessItem->ProcessId))
+        {
+            HANDLE processHandle;
+
+            if (NT_SUCCESS(PhOpenProcess(
+                &processHandle,
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ,
+                ProcessNode->ProcessId
+                )))
+            {
+                USHORT codePage;
+
+                if (NT_SUCCESS(PhGetProcessCodePage(processHandle, &codePage)))
+                {
+                    ProcessNode->CodePage = codePage;
+                }
+
+                NtClose(processHandle);
+            }
+        }
+
+        ProcessNode->ValidMask |= PHPN_CODEPAGE;
     }
 }
 
@@ -1947,6 +2052,35 @@ BEGIN_SORT_FUNCTION(CpuCore)
 }
 END_SORT_FUNCTION
 
+BEGIN_SORT_FUNCTION(Cet)
+{
+    sortResult = uintcmp(node1->ProcessItem->IsCetEnabled, node2->ProcessItem->IsCetEnabled);
+}
+END_SORT_FUNCTION
+
+BEGIN_SORT_FUNCTION(ImageCoherency)
+{
+    sortResult = singlecmp(processItem1->ImageCoherency, processItem2->ImageCoherency);
+}
+END_SORT_FUNCTION
+
+BEGIN_SORT_FUNCTION(ErrorMode)
+{
+    PhpUpdateProcessNodeErrorMode(node1);
+    PhpUpdateProcessNodeErrorMode(node2);
+    sortResult = PhCompareStringWithNullSortOrder(node1->ErrorModeText, node2->ErrorModeText, ProcessTreeListSortOrder, TRUE);
+}
+END_SORT_FUNCTION
+
+BEGIN_SORT_FUNCTION(CodePage)
+{
+    PhpUpdateProcessNodeCodePage(node1);
+    PhpUpdateProcessNodeCodePage(node2);
+
+    sortResult = ushortcmp(node1->CodePage, node2->CodePage);
+}
+END_SORT_FUNCTION
+
 BOOLEAN NTAPI PhpProcessTreeNewCallback(
     _In_ HWND hwnd,
     _In_ PH_TREENEW_MESSAGE Message,
@@ -2073,6 +2207,11 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                         SORT_FUNCTION(Critical),
                         SORT_FUNCTION(HexPid),
                         SORT_FUNCTION(CpuCore),
+                        SORT_FUNCTION(Cet),
+                        SORT_FUNCTION(ImageCoherency),
+                        SORT_FUNCTION(ErrorMode),
+                        SORT_FUNCTION(CodePage),
+                        SORT_FUNCTION(StartTime), // Timeline
                     };
                     int (__cdecl *sortFunction)(const void *, const void *);
 
@@ -2386,7 +2525,7 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                 break;
             case PHPRTLC_IOPRIORITY:
                 PhpUpdateProcessNodeIoPagePriority(node);
-                if (node->IoPriority != ULONG_MAX && node->IoPriority < MaxIoPriorityTypes)
+                if (node->IoPriority != ULONG_MAX && node->IoPriority >= IoPriorityVeryLow && node->IoPriority < MaxIoPriorityTypes)
                     PhInitializeStringRefLongHint(&getCellText->Text, PhIoPriorityHintNames[node->IoPriority]);
                 break;
             case PHPRTLC_PAGEPRIORITY:
@@ -2993,6 +3132,70 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                     }
                 }
                 break;
+            case PHPRTLC_CET:
+                if (processItem->IsCetEnabled)
+                    PhInitializeStringRef(&getCellText->Text, L"CET");
+                break;
+            case PHPRTLC_IMAGE_COHERENCY:
+                {
+                    PH_FORMAT format[2];
+                    SIZE_T returnLength;
+
+                    if (!PhEnableProcessQueryStage2)
+                        break;
+
+                    if (processItem->ImageCoherencyStatus == STATUS_PENDING)
+                    {
+                        PhInitializeStringRef(&getCellText->Text, L"Scanning....");
+                        break;
+                    }
+
+                    if (!PhpShouldShowImageCoherency(processItem, FALSE))
+                    {
+                        if (processItem->ImageCoherencyStatus != STATUS_SUCCESS)
+                        {
+                            PhMoveReference(
+                                &node->ImageCoherencyStatusText,
+                                PhGetStatusMessage(processItem->ImageCoherencyStatus, 0)
+                                );
+                            getCellText->Text = PhGetStringRef(node->ImageCoherencyStatusText);
+                        }
+                        break;
+                    }
+
+                    if (processItem->ImageCoherency == 1.0f)
+                    {
+                        PhInitializeStringRef(&getCellText->Text, L"100%");
+                        break;
+                    }
+
+                    PhInitFormatF(&format[0], (DOUBLE)(processItem->ImageCoherency * 100.f), 2);
+                    PhInitFormatS(&format[1], L"%");
+
+                    if (PhFormatToBuffer(format, RTL_NUMBER_OF(format), node->ImageCoherencyText, sizeof(node->ImageCoherencyText), &returnLength))
+                    {
+                        getCellText->Text.Buffer = node->ImageCoherencyText;
+                        getCellText->Text.Length = returnLength - sizeof(UNICODE_NULL);
+                    }
+                    break;
+                }
+            case PHPRTLC_ERRORMODE:
+                {
+                    PhpUpdateProcessNodeErrorMode(node);
+                    getCellText->Text = PhGetStringRef(node->ErrorModeText);
+                }
+                break;
+            case PHPRTLC_CODEPAGE:
+                {
+                    PhpUpdateProcessNodeCodePage(node);
+
+                    if (node->CodePage != 0)
+                    {
+                        PhMoveReference(&node->CodePageText, PhFormatUInt64(node->CodePage, FALSE));
+                        getCellText->Text = node->CodePageText->sr;
+                    }
+                }
+                break;
             default:
                 return FALSE;
             }
@@ -3055,6 +3258,8 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                 getNodeColor->BackColor = PhCsColorDotNet;
             else if (PhCsUseColorPacked && processItem->IsPacked)
                 getNodeColor->BackColor = PhCsColorPacked;
+            else if (PhCsUseColorLowImageCoherency && PhEnableProcessQueryStage2 && PhpShouldShowImageCoherency(processItem, TRUE))
+                getNodeColor->BackColor = PhCsColorLowImageCoherency;
             else if (PhCsUseColorWow64Processes && processItem->IsWow64)
                 getNodeColor->BackColor = PhCsColorWow64Processes;
             else if (PhCsUseColorJobProcesses && processItem->IsInSignificantJob)
@@ -3085,16 +3290,7 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
             PPH_TREENEW_GET_NODE_ICON getNodeIcon = Parameter1;
 
             node = (PPH_PROCESS_NODE)getNodeIcon->Node;
-
-            if (node->ProcessItem->SmallIcon)
-            {
-                getNodeIcon->Icon = node->ProcessItem->SmallIcon;
-            }
-            else
-            {
-                PhGetStockApplicationIcon(&getNodeIcon->Icon, NULL);
-            }
-
+            getNodeIcon->Icon = (HICON)(ULONG_PTR)node->ProcessItem->SmallIconIndex;
             getNodeIcon->Flags = TN_CACHE;
         }
         return TRUE;
@@ -3317,6 +3513,96 @@ BOOLEAN NTAPI PhpProcessTreeNewCallback(
                         );
                 }
 
+                break;
+            case PHPRTLC_TIMELINE:
+                {
+                    #define PhInflateRect(rect, dx, dy) \
+                    { (rect)->left -= (dx); (rect)->top -= (dy); (rect)->right += (dx); (rect)->bottom += (dy); }
+                    static HBRUSH backgroundBrush = NULL;
+                    HBRUSH previousBrush = NULL;
+                    RECT borderRect = customDraw->CellRect;
+                    FLOAT percent = 0;
+
+                    if (PH_IS_REAL_PROCESS_ID(processItem->ProcessId))
+                    {
+                        static LARGE_INTEGER bootTime = { 0 };
+                        LARGE_INTEGER systemTime;
+                        LARGE_INTEGER startTime;
+                        LARGE_INTEGER createTime;
+
+                        if (bootTime.QuadPart == 0)
+                        {
+                            SYSTEM_TIMEOFDAY_INFORMATION timeOfDayInfo;
+
+                            if (NT_SUCCESS(NtQuerySystemInformation(
+                                SystemTimeOfDayInformation,
+                                &timeOfDayInfo,
+                                sizeof(SYSTEM_TIMEOFDAY_INFORMATION),
+                                NULL
+                                )))
+                            {
+                                bootTime.LowPart = timeOfDayInfo.BootTime.LowPart;
+                                bootTime.HighPart = timeOfDayInfo.BootTime.HighPart;
+                                bootTime.QuadPart -= timeOfDayInfo.BootTimeBias;
+                            }
+
+                            //if (NT_SUCCESS(NtQuerySystemInformation(
+                            //    SystemTimeOfDayInformation,
+                            //    &timeOfDayInfo,
+                            //    RTL_SIZEOF_THROUGH_FIELD(SYSTEM_TIMEOFDAY_INFORMATION, CurrentTime),
+                            //    NULL
+                            //    )))
+                            //{
+                            //    startTime.QuadPart = timeOfDayInfo.CurrentTime.QuadPart - timeOfDayInfo.BootTime.QuadPart;
+                            //    createTime.QuadPart = timeOfDayInfo.CurrentTime.QuadPart - processItem->CreateTime.QuadPart;
+                            //    percent = round((DOUBLE)((FLOAT)createTime.QuadPart / (FLOAT)startTime.QuadPart * 100));
+                            //}
+                        }
+
+                        PhQuerySystemTime(&systemTime);
+                        startTime.QuadPart = systemTime.QuadPart - bootTime.QuadPart;
+                        createTime.QuadPart = systemTime.QuadPart - processItem->CreateTime.QuadPart;
+                        percent = (FLOAT)createTime.QuadPart / (FLOAT)startTime.QuadPart * 100.f;
+
+                        // Prevent overflow from changing the system time to an earlier date.
+                        if (percent > 100.f)
+                            percent = 100.f;
+                    }
+                    else
+                    {
+                        // DPCs, Interrupts and System Idle Process are always 100%
+                        percent = 100.f;
+                    }
+
+                    FillRect(customDraw->Dc, &rect, GetSysColorBrush(COLOR_WINDOW));
+                    PhInflateRect(&rect, -1, -1);
+                    rect.bottom += 1;
+                    FillRect(customDraw->Dc, &rect, GetSysColorBrush(COLOR_3DFACE));
+
+                    if (!backgroundBrush) backgroundBrush = CreateSolidBrush(RGB(158, 202, 158));
+                    if (backgroundBrush) previousBrush = SelectBrush(customDraw->Dc, backgroundBrush);
+
+                    // TODO: This still loses a small fraction of precision compared to PE here causing a 1px difference.
+                    //rect.right = ((LONG)(rect.left + ((rect.right - rect.left) * (LONG)percent) / 100));
+                    //rect.left = ((LONG)(rect.right + ((rect.left - rect.right) * (LONG)percent) / 100));
+                    rect.left = (LONG)(rect.right + ((rect.left - rect.right) * percent / 100));
+
+                    PatBlt(
+                        customDraw->Dc,
+                        rect.left,
+                        rect.top,
+                        rect.right - rect.left,
+                        rect.bottom - rect.top,
+                        PATCOPY
+                        );
+
+                    if (previousBrush) SelectBrush(customDraw->Dc, previousBrush);
+                    //if (backgroundBrush) DeleteBrush(backgroundBrush);
+
+                    PhInflateRect(&borderRect, -1, -1);
+                    borderRect.bottom += 1;
+                    FrameRect(customDraw->Dc, &borderRect, GetStockBrush(GRAY_BRUSH));
+                }
                 break;
             }
         }
@@ -3754,4 +4040,85 @@ PPH_LIST PhDuplicateProcessNodeList(
     PhInsertItemsList(newList, 0, ProcessNodeList->Items, ProcessNodeList->Count);
 
     return newList;
+}
+
+/**
+* Determines if the process item should show the image coherency in the UI.
+*
+* \param[in] ProcessItem - Process item to check.
+* \param[in] CheckThreshold - If TRUE the image low coherency threshold is
+* checked, see: LowImageCoherencyThreshold.
+*
+* \return TRUE if the image coherency should be shown, FALSE otherwise.
+*/
+BOOLEAN PhpShouldShowImageCoherency(
+    _In_ PPH_PROCESS_ITEM ProcessItem,
+    _In_ BOOLEAN CheckThreshold
+    )
+{
+    if (PhCsImageCoherencyScanLevel == 0)
+    {
+        //
+        // The advanced option for the image coherency scan level is 0.
+        // This disables the scanning and we should not show the image
+        // coherency.
+        //
+        return FALSE;
+    }
+
+    //
+    // If we haven't done the image coherency check yet, don't show. We
+    // initialize the process item with STATUS_PENDING to denote this.
+    // See: PhCreateProcessItem
+    //
+    if (ProcessItem->ImageCoherencyStatus == STATUS_PENDING)
+    {
+        return FALSE;
+    }
+
+    //
+    // Exclude the fake processes and system idle PID
+    //
+    if (PH_IS_FAKE_PROCESS_ID(ProcessItem->ProcessId) ||
+        (ProcessItem->ProcessId == SYSTEM_IDLE_PROCESS_ID))
+    {
+        return FALSE;
+    }
+
+    //
+    // Do not show if the process has no image file name (Secure System)
+    //
+    if (!ProcessItem->FileNameWin32)
+    {
+        return FALSE;
+    }
+
+    //
+    // We don't do the coherency check if the created process is WSL
+    //
+    if (ProcessItem->IsSubsystemProcess)
+    {
+        return FALSE;
+    }
+
+    if (NT_SUCCESS(ProcessItem->ImageCoherencyStatus) ||
+        (ProcessItem->ImageCoherencyStatus == STATUS_INVALID_IMAGE_NOT_MZ) ||
+        (ProcessItem->ImageCoherencyStatus == STATUS_INVALID_IMAGE_FORMAT) ||
+        (ProcessItem->ImageCoherencyStatus == STATUS_INVALID_IMAGE_HASH) ||
+        (ProcessItem->ImageCoherencyStatus == STATUS_IMAGE_SUBSYSTEM_NOT_PRESENT))
+    {
+        if (CheckThreshold)
+        {
+            if (ProcessItem->ImageCoherency <= LowImageCoherencyThreshold)
+            {
+                return TRUE;
+            }
+        }
+        else
+        {
+            return TRUE;
+        }
+    }
+
+    return FALSE;
 }

@@ -41,6 +41,7 @@
 #define SETTING_NAME_PING_WINDOW_POSITION (PLUGIN_NAME L".PingWindowPosition")
 #define SETTING_NAME_PING_WINDOW_SIZE (PLUGIN_NAME L".PingWindowSize")
 #define SETTING_NAME_PING_MINIMUM_SCALING (PLUGIN_NAME L".PingMinScaling")
+#define SETTING_NAME_PING_TIMEOUT (PLUGIN_NAME L".PingTimeout")
 #define SETTING_NAME_PING_SIZE (PLUGIN_NAME L".PingSize")
 #define SETTING_NAME_TRACERT_WINDOW_POSITION (PLUGIN_NAME L".TracertWindowPosition")
 #define SETTING_NAME_TRACERT_WINDOW_SIZE (PLUGIN_NAME L".TracertWindowSize")
@@ -53,7 +54,6 @@
 
 extern PPH_PLUGIN PluginInstance;
 extern BOOLEAN GeoDbLoaded;
-extern BOOLEAN GeoDbExpired;
 extern PPH_STRING SearchboxText;
 
 // ICMP Packet Length: (msdn: IcmpSendEcho2/Icmp6SendEcho2)
@@ -110,8 +110,9 @@ typedef struct _NETWORK_PING_CONTEXT
     HWND PingGraphHandle;
     HFONT FontHandle;
 
+    ULONG PingTimeout;
     ULONG CurrentPingMs;
-    ULONG MaxPingTimeout;
+    ULONG MinPingScaling;
     ULONG HashFailCount;
     ULONG UnknownAddrCount;
     ULONG PingMinMs;
@@ -153,7 +154,7 @@ typedef struct _NETWORK_WHOIS_CONTEXT
     PH_LAYOUT_MANAGER LayoutManager;
 
     PH_IP_ENDPOINT RemoteEndpoint;
-    WCHAR IpAddressString[INET6_ADDRSTRLEN + 1];
+    WCHAR IpAddressString[INET6_ADDRSTRLEN + sizeof(UNICODE_NULL)];
 } NETWORK_WHOIS_CONTEXT, *PNETWORK_WHOIS_CONTEXT;
 
 // TDM_NAVIGATE_PAGE can not be called from other threads without comctl32.dll throwing access violations 
@@ -230,11 +231,11 @@ typedef struct _NETWORK_EXTENSION
         };
     };
 
-    INT CountryIconIndex;
     PPH_STRING LocalServiceName;
     PPH_STRING RemoteServiceName;
-    PPH_STRING RemoteCountryCode;
+
     PPH_STRING RemoteCountryName;
+    INT CountryIconIndex;
 
     ULONG64 NumberOfBytesOut;
     ULONG64 NumberOfBytesIn;
@@ -304,6 +305,10 @@ VOID DrawCountryIcon(
     _In_ INT Index
     );
 
+VOID NetworkToolsGeoDbFlushCache(
+    VOID
+    );
+
 typedef struct _PH_UPDATER_CONTEXT
 {
     HWND DialogHandle;
@@ -321,7 +326,7 @@ NTSTATUS GeoIPUpdateThread(
     );
 
 VOID ShowGeoIPUpdateDialog(
-    _In_opt_ HWND Parent
+    VOID
     );
 
 // pages.c
@@ -351,6 +356,6 @@ typedef struct _RESOLVED_PORT
     USHORT Port;
 } RESOLVED_PORT;
 
-RESOLVED_PORT ResolvedPortsTable[6265];
+extern RESOLVED_PORT ResolvedPortsTable[6265];
 
 #endif

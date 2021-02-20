@@ -647,9 +647,9 @@ VOID LoadDiskDriveImages(
     if (PhExtractIconEx(deviceDescription->Buffer, (INT)index, &smallIcon, NULL))
     {
         Context->ImageList = ImageList_Create(
-            GetSystemMetrics(SM_CXICON),
-            GetSystemMetrics(SM_CYICON),
-            ILC_COLOR32,
+            24, // GetSystemMetrics(SM_CXSMICON)
+            24, // GetSystemMetrics(SM_CYSMICON)
+            ILC_MASK | ILC_COLOR32,
             1,
             1
             );
@@ -781,6 +781,20 @@ INT_PTR CALLBACK DiskDriveOptionsDlgProc(
                     if (deviceInstance = FindDiskDeviceInstance(param->DevicePath))
                     {
                         ShowDeviceMenu(hwndDlg, deviceInstance);
+                        PhDereferenceObject(deviceInstance);
+                    }
+                }
+            }
+            else if (header->code == NM_DBLCLK)
+            {
+                PDV_DISK_ID param;
+                PPH_STRING deviceInstance;
+
+                if (param = PhGetSelectedListViewItemParam(context->ListViewHandle))
+                {
+                    if (deviceInstance = FindDiskDeviceInstance(param->DevicePath))
+                    {
+                        HardwareDeviceShowProperties(hwndDlg, deviceInstance);
                         PhDereferenceObject(deviceInstance);
                     }
                 }

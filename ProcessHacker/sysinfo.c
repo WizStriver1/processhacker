@@ -88,7 +88,7 @@ VOID PhShowSystemInformationDialog(
     {
         if (!NT_SUCCESS(PhCreateThreadEx(&PhSipThread, PhSipSysInfoThreadStart, NULL)))
         {
-            PhShowError(PhMainWndHandle, L"Unable to create the window.");
+            PhShowError(PhMainWndHandle, L"%s", L"Unable to create the window.");
             return;
         }
 
@@ -577,12 +577,12 @@ VOID PhSipOnCommand(
         break;
     case IDC_REFRESH:
         {
-            ProcessHacker_Refresh(PhMainWndHandle);
+            ProcessHacker_Refresh();
         }
         break;
     case IDC_PAUSE:
         {
-            ProcessHacker_SetUpdateAutomatically(PhMainWndHandle, !ProcessHacker_GetUpdateAutomatically(PhMainWndHandle));
+            ProcessHacker_SetUpdateAutomatically(!ProcessHacker_GetUpdateAutomatically());
         }
         break;
     case IDC_MAXSCREEN:
@@ -1510,7 +1510,7 @@ VOID PhSipDefaultDrawPanel(
 
             stateId = -1;
 
-            if (Section->GraphHot || Section->PanelHot || Section->HasFocus)
+            if (Section->GraphHot || Section->PanelHot || (Section->HasFocus && !Section->HideFocus))
             {
                 if (Section == CurrentSection)
                     stateId = TREIS_HOTSELECTED;

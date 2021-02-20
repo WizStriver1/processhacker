@@ -3,6 +3,7 @@
  *   item tooltips
  *
  * Copyright (C) 2010-2015 wj32
+ * Copyright (C) 2017-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -29,6 +30,7 @@
 #include <lsasup.h>
 
 #include <phplug.h>
+#include <phsettings.h>
 #include <procprv.h>
 #include <srvprv.h>
 
@@ -47,18 +49,26 @@ VOID PhpFillMicrosoftEdge(
     _Inout_ PPH_STRING_BUILDER Tasks
     );
 
-VOID PhpFillWmiProviderHost(
-    _In_ PPH_PROCESS_ITEM Process,
-    _Inout_ PPH_STRING_BUILDER Providers
-    );
-
-// HACK
-PPH_STRING PhQueryWmiHostProcessString(
-    _In_ PPH_PROCESS_ITEM ProcessItem,
-    _Inout_ PPH_STRING_BUILDER Providers
-    );
+// Note: Tooltip information for WMI was disabled
+// after issues reported with suspended WMI processes.
+// See Github issue #713 (dmex)
+//VOID PhpFillWmiProviderHost(
+//    _In_ PPH_PROCESS_ITEM Process,
+//    _Inout_ PPH_STRING_BUILDER Providers
+//    );
+//
+//PPH_STRING PhQueryWmiHostProcessString(
+//    _In_ PPH_PROCESS_ITEM ProcessItem,
+//    _Inout_ PPH_STRING_BUILDER Providers
+//    );
 
 static PH_STRINGREF StandardIndent = PH_STRINGREF_INIT(L"    ");
+
+extern
+BOOLEAN PhpShouldShowImageCoherency(
+    _In_ PPH_PROCESS_ITEM ProcessItem,
+    _In_ BOOLEAN CheckThreshold
+    );
 
 VOID PhpAppendStringWithLineBreaks(
     _Inout_ PPH_STRING_BUILDER StringBuilder,
@@ -356,25 +366,25 @@ PPH_STRING PhGetProcessTooltipText(
             PhDeleteStringBuilder(&container);
         }
         break;
-    case WmiProviderHostType:
-        {
-            PH_STRING_BUILDER provider;
-
-            PhInitializeStringBuilder(&provider, 40);
-
-            PhpFillWmiProviderHost(Process, &provider);
-
-            if (provider.String->Length != 0)
-            {
-                PhAppendStringBuilder2(&stringBuilder, L"WMI Providers:\n");
-                PhAppendStringBuilder(&stringBuilder, &provider.String->sr);
-            }
-
-            PhDeleteStringBuilder(&provider);
-
-            validForMs = 10 * 1000; // 10 seconds
-        }      
-        break;
+    //case WmiProviderHostType:
+    //    {
+    //        PH_STRING_BUILDER provider;
+    //
+    //        PhInitializeStringBuilder(&provider, 40);
+    //
+    //        PhpFillWmiProviderHost(Process, &provider);
+    //
+    //        if (provider.String->Length != 0)
+    //        {
+    //            PhAppendStringBuilder2(&stringBuilder, L"WMI Providers:\n");
+    //            PhAppendStringBuilder(&stringBuilder, &provider.String->sr);
+    //        }
+    //
+    //        PhDeleteStringBuilder(&provider);
+    //
+    //        validForMs = 10 * 1000; // 10 seconds
+    //    }
+    //    break;
     }
 
     // Plugin
@@ -423,6 +433,15 @@ PPH_STRING PhGetProcessTooltipText(
                 L"    Image is probably packed (%lu imports over %lu modules).\n",
                 Process->ImportFunctions,
                 Process->ImportModules
+                );
+        }
+
+        if (PhEnableProcessQueryStage2 && PhpShouldShowImageCoherency(Process, TRUE))
+        {
+            PhAppendFormatStringBuilder(
+                &notes,
+                L"    Low Image Coherency: %.2f%%\n",
+                (DOUBLE)(Process->ImageCoherency * 100.0f)
                 );
         }
 
@@ -607,12 +626,11 @@ VOID PhpFillRunningTasks(
 {
     static CLSID CLSID_TaskScheduler_I = { 0x0f87369f, 0xa4e5, 0x4cfc, { 0xbd, 0x3e, 0x73, 0xe6, 0x15, 0x45, 0x72, 0xdd } };
     static IID IID_ITaskService_I = { 0x2faba4c7, 0x4da9, 0x4013, { 0x96, 0x97, 0x20, 0xcc, 0x3f, 0xd4, 0x0f, 0x85 } };
-
-    ITaskService *taskService;
+    ITaskService *taskService = NULL;
 
     if (SUCCEEDED(PhGetClassObject(
         L"taskschd.dll",
-        &CLSID_TaskScheduler,
+        &CLSID_TaskScheduler_I,
         &IID_ITaskService_I,
         &taskService
         )))
@@ -750,13 +768,13 @@ VOID PhpFillMicrosoftEdge(
     }
 }
 
-VOID PhpFillWmiProviderHost(
-    _In_ PPH_PROCESS_ITEM Process,
-    _Inout_ PPH_STRING_BUILDER Providers
-    )
-{
-    PhQueryWmiHostProcessString(Process, Providers);
-}
+//VOID PhpFillWmiProviderHost(
+//    _In_ PPH_PROCESS_ITEM Process,
+//    _Inout_ PPH_STRING_BUILDER Providers
+//    )
+//{
+//    PhQueryWmiHostProcessString(Process, Providers);
+//}
 
 PPH_STRING PhGetServiceTooltipText(
     _In_ PPH_SERVICE_ITEM Service

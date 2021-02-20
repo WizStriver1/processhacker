@@ -169,7 +169,7 @@ static VOID PhpPrintObjectInfo(
 {
     PVOID object;
     PPH_OBJECT_TYPE objectType;
-    WCHAR c = ' ';
+    WCHAR c = L' ';
 
     object = PhObjectHeaderToObject(ObjectHeader);
     wprintf(L"%Ix", (ULONG_PTR)object);
@@ -178,9 +178,9 @@ static VOID PhpPrintObjectInfo(
     wprintf(L"\t% 20s", objectType->Name);
 
     if (ObjectHeader->Flags & PH_OBJECT_FROM_SMALL_FREE_LIST)
-        c = 'f';
+        c = L'f';
     else if (ObjectHeader->Flags & PH_OBJECT_FROM_TYPE_FREE_LIST)
-        c = 'F';
+        c = L'F';
 
     wprintf(L"\t%4d %c", ObjectHeader->RefCount - RefToSubtract, c);
 
@@ -913,7 +913,7 @@ NTSTATUS PhpDebugConsoleThreadStart(
 #ifdef DEBUG
             wprintf(L"Object small free list count: %u\n", PhObjectSmallFreeList.Count);
             wprintf(L"Statistics:\n");
-#define PRINT_STATISTIC(Name) wprintf(L#Name L": %u\n", PhLibStatisticsBlock.Name);
+#define PRINT_STATISTIC(Name) wprintf(TEXT(#Name) L": %u\n", PhLibStatisticsBlock.Name);
 
             PRINT_STATISTIC(BaseThreadsCreated);
             PRINT_STATISTIC(BaseThreadsCreateFailed);

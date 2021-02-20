@@ -91,9 +91,6 @@ VOID EtInitializeDiskInformation(
 
     EtDiskEnabled = TRUE;
 
-    // Collect all existing file names.
-    EtStartEtwRundown();
-
     PhRegisterCallback(
         PhGetGeneralCallback(GeneralCallbackProcessProviderUpdatedEvent),
         EtpDiskProcessesUpdatedCallback,
@@ -312,7 +309,7 @@ VOID EtpProcessDiskPacket(
 
             if (!diskItem->ProcessIconValid && PhTestEvent(&processItem->Stage1Event))
             {
-                diskItem->ProcessIcon = processItem->SmallIcon;
+                diskItem->ProcessIconIndex = processItem->SmallIconIndex;
                 diskItem->ProcessIconValid = TRUE;
             }
 
@@ -515,7 +512,7 @@ VOID NTAPI EtpDiskProcessesUpdatedCallback(
 
                 if (!diskItem->ProcessIconValid && PhTestEvent(&diskItem->ProcessItem->Stage1Event))
                 {
-                    diskItem->ProcessIcon = diskItem->ProcessItem->SmallIcon;
+                    diskItem->ProcessIconIndex = diskItem->ProcessItem->SmallIconIndex;
                     diskItem->ProcessIconValid = TRUE;
                     modified = TRUE;
                 }

@@ -297,14 +297,14 @@ BOOLEAN QueryNetworkDeviceInterfaceDescription(
 
     // DEVPKEY_Device_DeviceDesc doesn't give us the full adapter name.
     // DEVPKEY_Device_FriendlyName does give us the full adapter name but is only
-    //  supported on Windows 8 and above.
+    //  supported on Windows 8 and above. (dmex)
 
     // We use our NetworkAdapterQueryName function to query the full adapter name
-    // from the NDIS driver directly, if that fails then we use one of the above properties.
+    // from the NDIS driver directly, if that fails then we use one of the above properties. (dmex)
 
     if ((result = CM_Get_DevNode_Property(
         deviceInstanceHandle,
-        WindowsVersion >= WINDOWS_8 ? &DEVPKEY_Device_FriendlyName : &DEVPKEY_Device_DeviceDesc,
+        PhWindowsVersion >= WINDOWS_8 ? &DEVPKEY_Device_FriendlyName : &DEVPKEY_Device_DeviceDesc,
         &devicePropertyType,
         (PBYTE)deviceDescription->Buffer,
         &bufferSize,
@@ -316,7 +316,7 @@ BOOLEAN QueryNetworkDeviceInterfaceDescription(
 
         result = CM_Get_DevNode_Property(
             deviceInstanceHandle,
-            WindowsVersion >= WINDOWS_8 ? &DEVPKEY_Device_FriendlyName : &DEVPKEY_Device_DeviceDesc,
+            PhWindowsVersion >= WINDOWS_8 ? &DEVPKEY_Device_FriendlyName : &DEVPKEY_Device_DeviceDesc,
             &devicePropertyType,
             (PBYTE)deviceDescription->Buffer,
             &bufferSize,
@@ -735,9 +735,9 @@ VOID LoadNetworkAdapterImages(
                 if (PhExtractIconEx(dllIconPath->Buffer, (INT)index, &smallIcon, NULL))
                 {
                     Context->ImageList = ImageList_Create(
-                        GetSystemMetrics(SM_CXICON),
-                        GetSystemMetrics(SM_CYICON),
-                        ILC_COLOR32,
+                        24, // GetSystemMetrics(SM_CXSMICON)
+                        24, // GetSystemMetrics(SM_CYSMICON)
+                        ILC_MASK | ILC_COLOR32,
                         1,
                         1
                         );
@@ -904,6 +904,20 @@ INT_PTR CALLBACK NetworkAdapterOptionsDlgProc(
                     if (deviceInstance = FindNetworkDeviceInstance(param->AdapterId.InterfaceGuid))
                     {
                         ShowDeviceMenu(hwndDlg, deviceInstance);
+                        PhDereferenceObject(deviceInstance);
+                    }
+                }
+            }
+            else if (header->code == NM_DBLCLK)
+            {
+                PDV_NETADAPTER_ENTRY param;
+                PPH_STRING deviceInstance;
+
+                if (param = PhGetSelectedListViewItemParam(context->ListViewHandle))
+                {
+                    if (deviceInstance = FindNetworkDeviceInstance(param->AdapterId.InterfaceGuid))
+                    {
+                        HardwareDeviceShowProperties(hwndDlg, deviceInstance);
                         PhDereferenceObject(deviceInstance);
                     }
                 }

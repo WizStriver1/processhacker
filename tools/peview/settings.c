@@ -34,6 +34,7 @@ VOID PhAddDefaultSettings(
     PhpAddStringSetting(L"DbgHelpSearchPath", L"SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols");
     PhpAddIntegerSetting(L"EnableSecurityAdvancedDialog", L"1");
     PhpAddIntegerSetting(L"EnableThemeSupport", L"0");
+    PhpAddIntegerSetting(L"EnableVersionSupport", L"0");
     PhpAddIntegerSetting(L"GraphColorMode", L"1");
     PhpAddIntegerSetting(L"HashAlgorithm", L"0");
     PhpAddIntegerSetting(L"MaxSizeUnit", L"6");
@@ -46,20 +47,30 @@ VOID PhAddDefaultSettings(
     PhpAddStringSetting(L"ImageLoadCfgListViewColumns", L"");
     PhpAddStringSetting(L"ImageExportsListViewColumns", L"");
     PhpAddStringSetting(L"ImageImportsListViewColumns", L"");
+    PhpAddStringSetting(L"ImageLayoutTreeColumns", L"");
     PhpAddStringSetting(L"ImageCfgListViewColumns", L"");
+    PhpAddStringSetting(L"ImageClrListViewColumns", L"");
     PhpAddStringSetting(L"ImageResourcesListViewColumns", L"");
     PhpAddStringSetting(L"ImageAttributesListViewColumns", L"");
     PhpAddStringSetting(L"ImagePropertiesListViewColumns", L"");
     PhpAddStringSetting(L"ImageSecurityListViewColumns", L"");
     PhpAddStringSetting(L"ImageSecurityListViewSort", L"");
+    PhpAddStringSetting(L"ImageSecurityTreeColumns", L"");
+    PhpAddStringSetting(L"ImageSecurityCertColumns", L"");
+    PhpAddIntegerPairSetting(L"ImageSecurityCertWindowPosition", L"0,0");
+    PhpAddScalableIntegerPairSetting(L"ImageSecurityCertWindowSize", L"@96|0,0");
     PhpAddStringSetting(L"ImageStreamsListViewColumns", L"");
     PhpAddStringSetting(L"ImageHardLinksListViewColumns", L"");
+    PhpAddStringSetting(L"ImageHashesListViewColumns", L"");
     PhpAddStringSetting(L"ImagePidsListViewColumns", L"");
     PhpAddStringSetting(L"ImageSectionsListViewColumns", L"");
     PhpAddStringSetting(L"ImageSectionsListViewSort", L"");
     PhpAddStringSetting(L"ImageTlsListViewColumns", L"");
     PhpAddStringSetting(L"ImageProdIdListViewColumns", L"");
     PhpAddStringSetting(L"ImageDebugListViewColumns", L"");
+    PhpAddStringSetting(L"ImageDebugCrtListViewColumns", L"");
+    PhpAddStringSetting(L"ImageDebugPogoListViewColumns", L"");
+    PhpAddStringSetting(L"ImageEhContListViewColumns", L"");
     PhpAddStringSetting(L"LibListViewColumns", L"");
     PhpAddStringSetting(L"PdbTreeListColumns", L"");
     PhpAddIntegerSetting(L"TreeListBorderEnable", L"0");
@@ -140,7 +151,7 @@ VOID PeInitializeSettings(
                     &fileHandle,
                     PeSettingsFileName->Buffer,
                     FILE_GENERIC_WRITE,
-                    0,
+                    FILE_ATTRIBUTE_NORMAL,
                     FILE_SHARE_READ | FILE_SHARE_DELETE,
                     FILE_OVERWRITE,
                     FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT

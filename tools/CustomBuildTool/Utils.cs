@@ -26,59 +26,86 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading;
 
 namespace CustomBuildTool
 {
     [System.Security.SuppressUnmanagedCodeSecurity]
     public static class Win32
     {
-        public static int CreateProcess(string FileName, string args)
+        public static int CreateProcess(string FileName, string Arguments, out string outputstring)
         {
             int exitcode = int.MaxValue;
+            StringBuilder output = new StringBuilder();
+            StringBuilder error = new StringBuilder();
 
-            using (Process process = Process.Start(new ProcessStartInfo
+            try
             {
-                UseShellExecute = false,
-                FileName = FileName
-            }))
-            {
-                process.StartInfo.Arguments = args;
-                process.Start();
+                using (Process process = new Process())
+                {
+                    process.StartInfo.FileName = FileName;
+                    process.StartInfo.Arguments = Arguments;
+                    process.StartInfo.UseShellExecute = false;
+                    process.StartInfo.RedirectStandardOutput = true;
+                    process.StartInfo.RedirectStandardError = true;
 
-                process.WaitForExit();
+                    using (AutoResetEvent outputWaitHandle = new AutoResetEvent(false))
+                    using (AutoResetEvent errorWaitHandle = new AutoResetEvent(false))
+                    {
+                        process.OutputDataReceived += (sender, e) =>
+                        {
+                            if (e.Data == null)
+                            {
+                                outputWaitHandle.Set();
+                            }
+                            else
+                            {
+                                output.AppendLine(e.Data);
+                            }
+                        };
+                        process.ErrorDataReceived += (sender, e) =>
+                        {
+                            if (e.Data == null)
+                            {
+                                errorWaitHandle.Set();
+                            }
+                            else
+                            {
+                                error.AppendLine(e.Data);
+                            }
+                        };
 
-                exitcode = process.ExitCode;
+                        process.Start();
+                        process.BeginOutputReadLine();
+                        process.BeginErrorReadLine();
+                        process.WaitForExit();
+
+                        if (outputWaitHandle.WaitOne() && errorWaitHandle.WaitOne())
+                        {
+                            exitcode = process.ExitCode;
+                        }
+                    }
+                }
             }
+            catch (Exception)
+            {
+
+            }
+
+            outputstring = output.ToString() + error.ToString();
+            outputstring = outputstring.Replace("\n\n", "\r\n", StringComparison.OrdinalIgnoreCase).Trim();
+            outputstring = outputstring.Replace("\r\n", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
 
             return exitcode;
         }
 
-        public static string ShellExecute(string FileName, string args)
+        public static string ShellExecute(string FileName, string Arguments)
         {
-            string output = string.Empty;
-            int code = int.MaxValue;
+            Win32.CreateProcess(FileName, Arguments, out string outputstring);
 
-            using (Process process = Process.Start(new ProcessStartInfo
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                FileName = FileName,
-                CreateNoWindow = true
-            }))
-            {
-                process.StartInfo.Arguments = args;
-                process.Start();
-
-                output = process.StandardOutput.ReadToEnd();
-                output = output.Replace("\n\n", "\r\n", StringComparison.OrdinalIgnoreCase).Trim();
-
-                process.WaitForExit();
-
-                code = process.ExitCode;
-            }
-
-            return output;
+            return outputstring;
         }
 
         public static string SearchFile(string FileName)
@@ -207,10 +234,7 @@ namespace CustomBuildTool
                 return BitConverter.ToString(checksum).Replace("-", string.Empty, StringComparison.OrdinalIgnoreCase);
             }
         }
-    }
 
-    public static class VisualStudio
-    {
         private static readonly string[] CustomSignToolPathArray =
         {
             "\\tools\\CustomSignTool\\bin\\Release64\\CustomSignTool.exe",
@@ -219,81 +243,9 @@ namespace CustomBuildTool
             //"\\tools\\CustomSignTool\\bin\\Debug32\\CustomSignTool.exe",
         };
 
-        private static readonly string[] MsBuildPathArray =
+        public static string GetPath(string FileName)
         {
-            "\\MSBuild\\Current\\Bin\\MSBuild.exe",
-            "\\MSBuild\\15.0\\Bin\\MSBuild.exe"
-        };
-
-        private static readonly string[] GitPathArray =
-        {
-            "%ProgramFiles%\\Git\\bin\\git.exe",
-            "%ProgramFiles(x86)%\\Git\\bin\\git.exe",
-            "%ProgramW6432%\\Git\\bin\\git.exe"
-        };
-
-        private static readonly string[] VswherePathArray =
-        {
-            "%ProgramFiles%\\Microsoft Visual Studio\\Installer\\vswhere.exe",
-            "%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe",
-            "%ProgramW6432%\\Microsoft Visual Studio\\Installer\\vswhere.exe"
-        };
-
-        public static string GetOutputDirectoryPath()
-        {
-            string folder = Environment.CurrentDirectory + "\\build\\output";
-
-            if (File.Exists(folder))
-                return folder;
-
-            try
-            {
-                Directory.CreateDirectory(folder);
-
-                return folder;
-            }
-            catch (Exception ex)
-            {
-                Program.PrintColorMessage("Error creating output directory. " + ex, ConsoleColor.Red);
-            }
-
-            return null;
-        }
-
-        public static string GetGitFilePath()
-        {
-            string git = Win32.SearchFile("git.exe");
-
-            if (File.Exists(git))
-                return git;
-
-            foreach (string path in GitPathArray)
-            {
-                git = Environment.ExpandEnvironmentVariables(path);
-
-                if (File.Exists(git))
-                    return git;
-            }
-
-            return null;
-        }
-
-        public static string GetGitWorkPath(string Directory)
-        {
-            return "--git-dir=\"" + Directory + "\\.git\" --work-tree=\"" + Directory + "\" "; ;
-        }
-
-        public static string GetVswhereFilePath()
-        {
-            foreach (string path in VswherePathArray)
-            {
-                string file = Environment.ExpandEnvironmentVariables(path);
-
-                if (File.Exists(file))
-                    return file;
-            }
-
-            return null;
+            return "tools\\CustomSignTool\\Resources\\" + FileName;
         }
 
         public static string GetCustomSignToolFilePath()
@@ -308,61 +260,42 @@ namespace CustomBuildTool
 
             return null;
         }
+    }
 
-        public static string GetMsbuildFilePath()
+    public static class VisualStudio
+    {
+        private static readonly string[] MsBuildPathArray =
         {
-            VisualStudioInstance instance;
-            string vswhere;
-            string vswhereResult;
+            "\\MSBuild\\Current\\Bin\\MSBuild.exe",
+            "\\MSBuild\\15.0\\Bin\\MSBuild.exe"
+        };
 
-            instance = GetVisualStudioInstance();
+        private static string MsBuildFilePath;
+        private static VisualStudioInstance VisualStudioInstance;
+        private static List<VisualStudioInstance> VisualStudioInstanceList;
 
-            if (instance != null)
-            {
-                foreach (string path in MsBuildPathArray)
-                {
-                    string file = instance.Path + path;
-
-                    if (File.Exists(file))
-                    {
-                        return file;
-                    }
-                }
-            }
-
-            vswhere = GetVswhereFilePath();
-
-            if (string.IsNullOrEmpty(vswhere))
-                return null;
-
-            vswhereResult = Win32.ShellExecute(
-                vswhere,
-                "-latest " +
-                "-prerelease " +
-                "-products * " +
-                "-requiresAny " +
-                "-requires Microsoft.Component.MSBuild " +
-                "-property installationPath "
-                );
-
-            if (string.IsNullOrEmpty(vswhereResult))
-                return null;
-
-            foreach (string path in MsBuildPathArray)
-            {
-                string file = vswhereResult + path;
-
-                if (File.Exists(file))
-                {
-                    return file;
-                }
-            }
-
-            return null;
+        public static string GetOutputDirectoryPath()
+        {
+            return Environment.CurrentDirectory + "\\build\\output";
         }
 
+        public static void CreateOutputDirectory()
+        {
+            string folder = GetOutputDirectoryPath();
 
-        private static List<VisualStudioInstance> VisualStudioInstanceList = null;
+            if (File.Exists(folder))
+                return;
+
+            try
+            {
+                Directory.CreateDirectory(folder);
+            }
+            catch (Exception ex)
+            {
+                Program.PrintColorMessage("Error creating output directory: " + ex, ConsoleColor.Red);
+            }
+        }
+
         public static VisualStudioInstance GetVisualStudioInstance()
         {
             if (VisualStudioInstanceList == null)
@@ -392,21 +325,212 @@ namespace CustomBuildTool
                     }
                 }
                 catch { }
+
+                VisualStudioInstanceList.Sort((p1, p2) =>
+                {
+                    if (Version.TryParse(p1.InstallationVersion, out Version version1) && Version.TryParse(p2.InstallationVersion, out Version version2))
+                    {
+                        if (version1 < version2)
+                            return 1;
+                        else if (version1 > version2)
+                            return -1;
+
+                        return version1.CompareTo(version2);
+                    }
+
+                    return 1;
+                });
             }
 
-            foreach (VisualStudioInstance instance in VisualStudioInstanceList)
+            if (VisualStudioInstance == null)
             {
-                if (
-                    instance.HasRequiredDependency &&
-                    instance.DisplayName.EndsWith("2019", StringComparison.OrdinalIgnoreCase) // HACK
-                    )
+                foreach (VisualStudioInstance instance in VisualStudioInstanceList)
                 {
-                    return instance;
+                    if (
+                        instance.HasRequiredDependency &&
+                        instance.DisplayName.EndsWith("2019", StringComparison.OrdinalIgnoreCase) // HACK
+                        )
+                    {
+                        VisualStudioInstance = instance;
+                        break;
+                    }
                 }
+            }
+
+            return VisualStudioInstance;
+        }
+
+        public static string GetVswhereFilePath()
+        {
+            string[] vswherePathArray =
+            {
+                "%ProgramFiles%\\Microsoft Visual Studio\\Installer\\vswhere.exe",
+                "%ProgramFiles(x86)%\\Microsoft Visual Studio\\Installer\\vswhere.exe",
+                "%ProgramW6432%\\Microsoft Visual Studio\\Installer\\vswhere.exe"
+            };
+
+            foreach (string path in vswherePathArray)
+            {
+                string file = Environment.ExpandEnvironmentVariables(path);
+
+                if (File.Exists(file))
+                    return file;
+            }
+
+            {
+                string file = Win32.SearchFile("vswhere.exe");
+
+                if (File.Exists(file))
+                    return file;
             }
 
             return null;
         }
+
+        public static string GetMsbuildFilePath()
+        {
+            if (string.IsNullOrEmpty(MsBuildFilePath))
+            {
+                VisualStudioInstance instance = GetVisualStudioInstance();
+
+                if (instance != null)
+                {
+                    foreach (string path in MsBuildPathArray)
+                    {
+                        string file = instance.Path + path;
+
+                        if (File.Exists(file))
+                        {
+                            MsBuildFilePath = file;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (string.IsNullOrEmpty(MsBuildFilePath))
+            {
+                var vswhere = GetVswhereFilePath();
+
+                if (string.IsNullOrEmpty(vswhere))
+                    return null;
+
+                var vswhereResult = Win32.ShellExecute(
+                    vswhere,
+                    "-latest " +
+                    "-prerelease " +
+                    "-products * " +
+                    "-requiresAny " +
+                    "-requires Microsoft.Component.MSBuild " +
+                    "-property installationPath "
+                    );
+
+                if (!string.IsNullOrEmpty(vswhereResult))
+                {
+                    foreach (string path in MsBuildPathArray)
+                    {
+                        string file = vswhereResult + path;
+
+                        if (File.Exists(file))
+                        {
+                            MsBuildFilePath = file;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            return MsBuildFilePath;
+        }
+
+        public static string GetGitFilePath()
+        {
+            string[] gitPathArray =
+            {
+                "%ProgramFiles%\\Git\\bin\\git.exe",
+                "%ProgramFiles(x86)%\\Git\\bin\\git.exe",
+                "%ProgramW6432%\\Git\\bin\\git.exe"
+            };
+
+            foreach (string path in gitPathArray)
+            {
+                string file = Environment.ExpandEnvironmentVariables(path);
+
+                if (File.Exists(file))
+                    return file;
+            }
+
+            {
+                string file = Win32.SearchFile("git.exe");
+
+                if (File.Exists(file))
+                    return file;
+            }
+
+            return null;
+        }
+
+        public static string GetGitWorkPath()
+        {
+            if (Directory.Exists(Environment.CurrentDirectory + "\\.git"))
+            {
+                return "--git-dir=\"" + Environment.CurrentDirectory + "\\.git\" --work-tree=\"" + Environment.CurrentDirectory + "\" ";
+            }
+
+            return string.Empty;
+        }
+
+        //public static string GetMsbuildFilePath()
+        //{
+        //    VisualStudioInstance instance;
+        //    string vswhere;
+        //    string vswhereResult;
+        //
+        //    instance = GetVisualStudioInstance();
+        //
+        //    if (instance != null)
+        //    {
+        //        foreach (string path in MsBuildPathArray)
+        //        {
+        //            string file = instance.Path + path;
+        //
+        //            if (File.Exists(file))
+        //            {
+        //                return file;
+        //            }
+        //        }
+        //    }
+        //
+        //    vswhere = GetVswhereFilePath();
+        //
+        //    if (string.IsNullOrEmpty(vswhere))
+        //        return null;
+        //
+        //    vswhereResult = Win32.ShellExecute(
+        //        vswhere,
+        //        "-latest " +
+        //        "-prerelease " +
+        //        "-products * " +
+        //        "-requiresAny " +
+        //        "-requires Microsoft.Component.MSBuild " +
+        //        "-property installationPath "
+        //        );
+        //
+        //    if (string.IsNullOrEmpty(vswhereResult))
+        //        return null;
+        //
+        //    foreach (string path in MsBuildPathArray)
+        //    {
+        //        string file = vswhereResult + path;
+        //
+        //        if (File.Exists(file))
+        //        {
+        //            return file;
+        //        }
+        //    }
+        //
+        //    return null;
+        //}
     }
 
     public static class AppVeyor
@@ -454,11 +578,9 @@ namespace CustomBuildTool
 
     public class VisualStudioInstance : IComparable, IComparable<VisualStudioInstance>
     {
-        public bool IsLaunchable { get; }
-        public bool IsComplete { get; }
         public string Name { get; }
         public string Path { get; }
-        public string Version { get; }
+        public string InstallationVersion { get; }
         public string DisplayName { get; }
         public string ResolvePath { get; }
         public string ProductPath { get; }
@@ -474,11 +596,9 @@ namespace CustomBuildTool
         public VisualStudioInstance(ISetupInstance2 FromInstance)
         {
             this.Packages = new List<VisualStudioPackage>();
-            this.IsLaunchable = FromInstance.IsLaunchable();
-            this.IsComplete = FromInstance.IsComplete();
             this.Name = FromInstance.GetInstallationName();
             this.Path = FromInstance.GetInstallationPath();
-            this.Version = FromInstance.GetInstallationVersion();
+            this.InstallationVersion = FromInstance.GetInstallationVersion();
             this.DisplayName = FromInstance.GetDisplayName();
             this.ResolvePath = FromInstance.ResolvePath();
             this.InstanceId = FromInstance.GetInstanceId();
@@ -501,7 +621,13 @@ namespace CustomBuildTool
             if (found.Count == 0)
                 return null;
 
-            found.Sort((p1, p2) => string.Compare(p1.Id, p2.Id, StringComparison.OrdinalIgnoreCase));
+            found.Sort((p1, p2) =>
+            {
+                if (Version.TryParse(p1.Version, out Version v1) && Version.TryParse(p2.Version, out Version v2))
+                    return v1.CompareTo(v2);
+                else
+                    return 1;
+            });
 
             return found[^1];
         }
@@ -658,7 +784,6 @@ namespace CustomBuildTool
         [JsonPropertyName("build_version")] public string BuildVersion { get; set; }
         [JsonPropertyName("build_commit")] public string BuildCommit { get; set; }
         [JsonPropertyName("build_updated")] public string BuildUpdated { get; set; }
-        [JsonPropertyName("build_message")] public string BuildMessage { get; set; }
 
         [JsonPropertyName("bin_url")] public string BinUrl { get; set; }
         [JsonPropertyName("bin_length")] public string BinLength { get; set; }
@@ -669,15 +794,6 @@ namespace CustomBuildTool
         [JsonPropertyName("setup_length")] public string SetupLength { get; set; }
         [JsonPropertyName("setup_hash")] public string SetupHash { get; set; }
         [JsonPropertyName("setup_sig")] public string SetupSig { get; set; }
-
-        [JsonPropertyName("websetup_url")] public string WebSetupUrl { get; set; }
-        [JsonPropertyName("websetup_version")] public string WebSetupVersion { get; set; }
-        [JsonPropertyName("websetup_length")] public string WebSetupLength { get; set; }
-        [JsonPropertyName("websetup_hash")] public string WebSetupHash { get; set; }
-        [JsonPropertyName("websetup_sig")] public string WebSetupSig { get; set; }
-
-        [JsonPropertyName("message")] public string Message { get; set; }
-        [JsonPropertyName("changelog")] public string Changelog { get; set; }
     }
 
     public static class Extextensions

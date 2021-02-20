@@ -2,7 +2,7 @@
  * Process Hacker -
  *   PE viewer
  *
- * Copyright (C) 2017-2020 dmex
+ * Copyright (C) 2017-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -173,6 +173,8 @@ typedef enum _PVE_RESOURCES_COLUMN_INDEX
     PVE_RESOURCES_COLUMN_INDEX_COUNT,
     PVE_RESOURCES_COLUMN_INDEX_TYPE,
     PVE_RESOURCES_COLUMN_INDEX_NAME,
+    PVE_RESOURCES_COLUMN_INDEX_STARTRVA,
+    PVE_RESOURCES_COLUMN_INDEX_ENDRVA,
     PVE_RESOURCES_COLUMN_INDEX_SIZE,
     PVE_RESOURCES_COLUMN_INDEX_LCID,
     PVE_RESOURCES_COLUMN_INDEX_HASH
@@ -208,9 +210,11 @@ INT_PTR CALLBACK PvpPeResourcesDlgProc(
             PhAddListViewColumn(lvHandle, 0, 0, 0, LVCFMT_LEFT, 40, L"#");
             PhAddListViewColumn(lvHandle, 1, 1, 1, LVCFMT_LEFT, 150, L"Type");
             PhAddListViewColumn(lvHandle, 2, 2, 2, LVCFMT_LEFT, 80, L"Name");
-            PhAddListViewColumn(lvHandle, 3, 3, 3, LVCFMT_LEFT, 100, L"Size");
-            PhAddListViewColumn(lvHandle, 4, 4, 4, LVCFMT_LEFT, 100, L"Language");
-            PhAddListViewColumn(lvHandle, 5, 5, 5, LVCFMT_LEFT, 100, L"Hash");
+            PhAddListViewColumn(lvHandle, 3, 3, 3, LVCFMT_LEFT, 80, L"RVA (start)");
+            PhAddListViewColumn(lvHandle, 4, 4, 4, LVCFMT_LEFT, 80, L"RVA (end)");
+            PhAddListViewColumn(lvHandle, 5, 5, 5, LVCFMT_LEFT, 100, L"Size");
+            PhAddListViewColumn(lvHandle, 6, 6, 6, LVCFMT_LEFT, 100, L"Language");
+            PhAddListViewColumn(lvHandle, 7, 7, 7, LVCFMT_LEFT, 100, L"Hash");
             PhSetExtendedListView(lvHandle);
             PhLoadListViewColumnsFromSetting(L"ImageResourcesListViewColumns", lvHandle);
 
@@ -219,12 +223,12 @@ INT_PTR CALLBACK PvpPeResourcesDlgProc(
                 for (i = 0; i < resources.NumberOfEntries; i++)
                 {
                     PPH_STRING string;
-                    WCHAR number[PH_INT32_STR_LEN_1];
+                    WCHAR value[PH_INT64_STR_LEN_1];
 
                     entry = resources.ResourceEntries[i];
 
-                    PhPrintUInt32(number, ++count);
-                    lvItemIndex = PhAddListViewItem(lvHandle, MAXINT, number, UlongToPtr(i));
+                    PhPrintUInt32(value, ++count);
+                    lvItemIndex = PhAddListViewItem(lvHandle, MAXINT, value, UlongToPtr(i));
 
                     if (IS_INTRESOURCE(entry.Type))
                     {
@@ -235,49 +239,52 @@ INT_PTR CALLBACK PvpPeResourcesDlgProc(
                         PIMAGE_RESOURCE_DIR_STRING_U resourceString = (PIMAGE_RESOURCE_DIR_STRING_U)entry.Type;
 
                         string = PhCreateStringEx(resourceString->NameString, resourceString->Length * sizeof(WCHAR));
-
                         PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_TYPE, string->Buffer);
                         PhDereferenceObject(string);
                     }
 
                     if (IS_INTRESOURCE(entry.Name))
                     {
-                        PhPrintUInt32(number, (ULONG)entry.Name);
-                        PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_NAME, number);
+                        PhPrintUInt32(value, (ULONG)entry.Name);
+                        PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_NAME, value);
                     }
                     else
                     {
                         PIMAGE_RESOURCE_DIR_STRING_U resourceString = (PIMAGE_RESOURCE_DIR_STRING_U)entry.Name;
 
                         string = PhCreateStringEx(resourceString->NameString, resourceString->Length * sizeof(WCHAR));
-
                         PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_NAME, string->Buffer);
                         PhDereferenceObject(string);
                     }
 
                     if (IS_INTRESOURCE(entry.Language))
                     {
-                        NTSTATUS status;
-                        UNICODE_STRING localeNameUs;
-                        WCHAR localeName[LOCALE_NAME_MAX_LENGTH];
-
-                        RtlInitEmptyUnicodeString(&localeNameUs, localeName, sizeof(localeName));
-
-                        // Note: Win32 defaults to the current user locale when zero is specified (e.g. LCIDToLocaleName).
                         if ((ULONG)entry.Language)
-                            status = RtlLcidToLocaleName((ULONG)entry.Language, &localeNameUs, 0, FALSE);
-                        else
-                            status = RtlLcidToLocaleName(PhGetUserDefaultLCID(), &localeNameUs, 0, FALSE);
+                        {
+#if (PHNT_VERSION >= PHNT_WIN7)
+                            UNICODE_STRING localeNameUs;
+                            WCHAR localeName[LOCALE_NAME_MAX_LENGTH] = { UNICODE_NULL };
 
-                        if (NT_SUCCESS(status))
-                        {
-                            PhPrintUInt32(number, (ULONG)entry.Language);
-                            PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_LCID, PhaFormatString(L"%s (%s)", number, localeName)->Buffer);
+                            RtlInitEmptyUnicodeString(&localeNameUs, localeName, sizeof(localeName));
+
+                            if (NT_SUCCESS(RtlLcidToLocaleName((ULONG)entry.Language, &localeNameUs, 0, FALSE)))
+                            {
+                                PhPrintUInt32(value, (ULONG)entry.Language);
+                                PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_LCID, PhaFormatString(L"%s (%s)", value, localeName)->Buffer);
+                            }
+                            else
+                            {
+                                PhPrintUInt32(value, (ULONG)entry.Language);
+                                PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_LCID, value);
+                            }
+#else
+                            PhPrintUInt32(value, (ULONG)entry.Language);
+                            PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_LCID, value);
+#endif
                         }
-                        else
+                        else // LOCALE_NEUTRAL
                         {
-                            PhPrintUInt32(number, (ULONG)entry.Language);
-                            PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_LCID, number);
+                            PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_LCID, L"Neutral");
                         }
                     }
                     else
@@ -285,11 +292,14 @@ INT_PTR CALLBACK PvpPeResourcesDlgProc(
                         PIMAGE_RESOURCE_DIR_STRING_U resourceString = (PIMAGE_RESOURCE_DIR_STRING_U)entry.Language;
 
                         string = PhCreateStringEx(resourceString->NameString, resourceString->Length * sizeof(WCHAR));
-
                         PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_LCID, string->Buffer);
                         PhDereferenceObject(string);
                     }
 
+                    PhPrintPointer(value, UlongToPtr(entry.Offset));
+                    PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_STARTRVA, value);
+                    PhPrintPointer(value, PTR_ADD_OFFSET(entry.Offset, entry.Size));
+                    PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_ENDRVA, value);
                     PhSetListViewSubItem(lvHandle, lvItemIndex, PVE_RESOURCES_COLUMN_INDEX_SIZE, PhaFormatSize(entry.Size, ULONG_MAX)->Buffer);
 
                     if (entry.Data && entry.Size)
@@ -345,7 +355,6 @@ INT_PTR CALLBACK PvpPeResourcesDlgProc(
 
                 dialogItem = PvAddPropPageLayoutItem(hwndDlg, hwndDlg, PH_PROP_PAGE_TAB_CONTROL_PARENT, PH_ANCHOR_ALL);
                 PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_LIST), dialogItem, PH_ANCHOR_ALL);
-
                 PvDoPropPageLayout(hwndDlg);
 
                 propPageContext->LayoutInitialized = TRUE;

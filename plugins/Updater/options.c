@@ -34,7 +34,66 @@ INT_PTR CALLBACK OptionsDlgProc(
     case WM_INITDIALOG:
         {
             if (PhGetIntegerSetting(SETTING_NAME_AUTO_CHECK))
+            {
+                ULONG64 lastUpdateTimeTicks;
+                PPH_STRING lastUpdateTimeString;
+
                 Button_SetCheck(GetDlgItem(hwndDlg, IDC_AUTOCHECKBOX), BST_CHECKED);
+
+                if (lastUpdateTimeString = PhGetStringSetting(SETTING_NAME_LAST_CHECK))
+                {
+                    if (PhStringToInteger64(&lastUpdateTimeString->sr, 0, &lastUpdateTimeTicks))
+                    {
+                        PPH_STRING timeRelativeString;
+                        PPH_STRING timeString;
+                        LARGE_INTEGER time;
+                        LARGE_INTEGER currentTime;
+                        SYSTEMTIME timeFields;
+
+                        time.QuadPart = lastUpdateTimeTicks;
+                        PhLargeIntegerToLocalSystemTime(&timeFields, &time);
+                        timeString = PhaFormatDateTime(&timeFields);
+
+                        PhQuerySystemTime(&currentTime);
+                        timeRelativeString = PH_AUTO(PhFormatTimeSpanRelative(currentTime.QuadPart - lastUpdateTimeTicks));
+
+                        PhSetDialogItemText(hwndDlg, IDC_TEXT, PhaFormatString(
+                            L"Last update check: %s (%s ago)",
+                            PhGetStringOrEmpty(timeString),
+                            PhGetStringOrEmpty(timeRelativeString)
+                            )->Buffer);
+
+                        time.QuadPart = lastUpdateTimeTicks + (7 * PH_TICKS_PER_DAY);
+                        PhLargeIntegerToLocalSystemTime(&timeFields, &time);
+                        timeString = PhaFormatDateTime(&timeFields);
+
+                        time.QuadPart = time.QuadPart - currentTime.QuadPart;
+                        if (time.QuadPart > 0)
+                        {
+                            timeRelativeString = PH_AUTO(PhFormatTimeSpanRelative(time.QuadPart));
+                            PhSetDialogItemText(hwndDlg, IDC_TEXT2, PhaFormatString(
+                                L"Next update check: %s (%s)",
+                                PhGetStringOrEmpty(timeString),
+                                PhGetStringOrEmpty(timeRelativeString)
+                                )->Buffer);
+                        }
+                        else
+                        {
+                            PhSetDialogItemText(hwndDlg, IDC_TEXT2, PhaFormatString(
+                                L"Next update check: %s",
+                                PhGetStringOrEmpty(timeString)
+                                )->Buffer);
+                        }
+                    }
+
+                    PhDereferenceObject(lastUpdateTimeString);
+                }
+            }
+
+            if (PhGetIntegerSetting(SETTING_NAME_UPDATE_MODE))
+            {
+                Button_SetCheck(GetDlgItem(hwndDlg, IDC_AUTOCHECKBOX2), BST_CHECKED);
+            }
         }
         break;
     case WM_COMMAND:
@@ -44,7 +103,13 @@ INT_PTR CALLBACK OptionsDlgProc(
             case IDC_AUTOCHECKBOX:
                 {
                     PhSetIntegerSetting(SETTING_NAME_AUTO_CHECK,
-                        Button_GetCheck(GetDlgItem(hwndDlg, IDC_AUTOCHECKBOX)) == BST_CHECKED);
+                        Button_GetCheck(GET_WM_COMMAND_HWND(wParam, lParam)) == BST_CHECKED);
+                }
+                break;
+            case IDC_AUTOCHECKBOX2:
+                {
+                    PhSetIntegerSetting(SETTING_NAME_UPDATE_MODE,
+                        Button_GetCheck(GET_WM_COMMAND_HWND(wParam, lParam)) == BST_CHECKED);
                 }
                 break;
             }
@@ -265,7 +330,10 @@ typedef struct _PH_UPDATER_COMMIT_CONTEXT
     HWND ListViewHandle;
     HFONT ListViewBoldFont;
     PPH_STRING BuildMessage;
-    PPH_STRING CommitHash;
+
+    PPH_STRING CurrentCommitHash;
+    PPH_STRING LatestCommitHash;
+
     PH_LAYOUT_MANAGER LayoutManager;
 } PH_UPDATER_COMMIT_CONTEXT, *PPH_UPDATER_COMMIT_CONTEXT;
 
@@ -404,10 +472,29 @@ INT_PTR CALLBACK TextDlgProc(
             PhSetDialogFocus(hwndDlg, GetDlgItem(hwndDlg, IDCANCEL));
 
             {
-                context->CommitHash = PhGetPhVersionHash();
+                PPH_UPDATER_CONTEXT updater = ((PPH_UPDATER_CONTEXT)lParam);
+                context->CurrentCommitHash = PhGetPhVersionHash();
+                if (updater) context->LatestCommitHash = PhReferenceObject(updater->CommitHash);
 
-                if (PhIsNullOrEmptyString(context->CommitHash) || PhEqualString2(context->CommitHash, L"\"\"", TRUE))
-                    PhMoveReference(&context->CommitHash, PhReferenceObject(((PPH_UPDATER_CONTEXT)lParam)->CommitHash)); // HACK
+                if (
+                    context->CurrentCommitHash &&
+                    context->LatestCommitHash &&
+                    PhEqualString2(context->CurrentCommitHash, L"\"\"", TRUE)
+                    )
+                {
+                    PhDereferenceObject(context->CurrentCommitHash);
+                    context->CurrentCommitHash = PhReferenceObject(context->LatestCommitHash);
+                }
+
+                if (
+                    context->CurrentCommitHash &&
+                    context->LatestCommitHash &&
+                    PhEqualString(context->CurrentCommitHash, context->LatestCommitHash, TRUE)
+                    )
+                {
+                    PhDereferenceObject(context->LatestCommitHash);
+                    context->LatestCommitHash = NULL;
+                }
             }
 
             //PhSetWindowText(GetDlgItem(hwndDlg, IDC_TEXT), PhGetString(context->BuildMessage));
@@ -422,15 +509,19 @@ INT_PTR CALLBACK TextDlgProc(
 
             PhDeleteLayoutManager(&context->LayoutManager);
 
-            if (context->CommitHash)
-                PhDereferenceObject(context->CommitHash);
+            if (context->LatestCommitHash)
+                PhDereferenceObject(context->LatestCommitHash);
+            if (context->CurrentCommitHash)
+                PhDereferenceObject(context->CurrentCommitHash);
             if (context->ListViewBoldFont)
                 DeleteFont(context->ListViewBoldFont);
 
             PhpUpdaterFreeListViewEntries(context);
 
             PhRemoveWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT);
+
             PhFree(context);
+            context = NULL;
         }
         break;
     case WM_SIZE:
@@ -462,6 +553,27 @@ INT_PTR CALLBACK TextDlgProc(
             //        PhCopyListViewInfoTip(getInfoTip, &tip);
             //    }
             //    break;
+            case NM_DBLCLK:
+                {
+                    if (header->hwndFrom == context->ListViewHandle)
+                    {
+                        PPH_UPDATER_COMMIT_ENTRY entry;
+                        PPH_STRING commitHashUrl;
+
+                        if (entry = PhGetSelectedListViewItemParam(context->ListViewHandle))
+                        {
+                            if (commitHashUrl = PhConcatStrings2(
+                                L"https://github.com/processhacker/processhacker/commit/",
+                                PhGetString(entry->CommitHashString)
+                                ))
+                            {
+                                PhShellExecute(hwndDlg, PhGetString(commitHashUrl), NULL);
+                                PhDereferenceObject(commitHashUrl);
+                            }
+                        }
+                    }
+                }
+                break;
             case NM_CUSTOMDRAW:
                 {
                     if (header->hwndFrom == context->ListViewHandle)
@@ -484,11 +596,25 @@ INT_PTR CALLBACK TextDlgProc(
 
                                 if (commitHash = PhGetListViewItemText(context->ListViewHandle, (INT)customDraw->nmcd.dwItemSpec, 3))
                                 {
-                                    if (shortCommitHash = PhSubstring(context->CommitHash, 0, 7))
+                                    if (context->LatestCommitHash && (shortCommitHash = PhSubstring(context->LatestCommitHash, 0, 7)))
                                     {
                                         if (PhEqualString(commitHash, shortCommitHash, TRUE))
                                         {
                                             newFont = context->ListViewBoldFont;
+                                            customDraw->clrText = RGB(0, 0, 0xff);
+                                            SelectFont(customDraw->nmcd.hdc, newFont);
+                                        }
+
+                                        PhDereferenceObject(shortCommitHash);
+                                    }
+
+                                    if (context->CurrentCommitHash && (shortCommitHash = PhSubstring(context->CurrentCommitHash, 0, 7)))
+                                    {
+                                        if (PhEqualString(commitHash, shortCommitHash, TRUE))
+                                        {
+                                            newFont = context->ListViewBoldFont;
+                                            customDraw->clrText = RGB(0, 0, 0x0);
+                                            SelectFont(customDraw->nmcd.hdc, newFont);
                                         }
 
                                         PhDereferenceObject(shortCommitHash);
@@ -496,10 +622,7 @@ INT_PTR CALLBACK TextDlgProc(
 
                                     PhDereferenceObject(commitHash);
                                 }
-
-                                if (newFont)
-                                    SelectFont(customDraw->nmcd.hdc, newFont);
-
+        
                                 if (newFont)
                                 {
                                     SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, CDRF_NEWFONT);
@@ -673,7 +796,10 @@ INT_PTR CALLBACK TextDlgProc(
         break;
     }
 
-    REFLECT_MESSAGE_DLG(hwndDlg, context->ListViewHandle, uMsg, wParam, lParam);
+    if (context)
+    {
+        REFLECT_MESSAGE_DLG(hwndDlg, context->ListViewHandle, uMsg, wParam, lParam);
+    }
 
     return FALSE;
 }

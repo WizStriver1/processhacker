@@ -90,11 +90,12 @@ INT WINAPI wWinMain(
     {
         PhShowWarning(
             NULL,
+            L"%s",
             L"You are attempting to run the 32-bit version of PE Viewer on 64-bit Windows. "
             L"Most features will not work correctly.\n\n"
             L"Please run the 64-bit version of PE Viewer instead."
             );
-        RtlExitUserProcess(STATUS_IMAGE_SUBSYSTEM_NOT_PRESENT);
+        PhExitApplication(STATUS_IMAGE_SUBSYSTEM_NOT_PRESENT);
     }
 #endif
 
@@ -154,7 +155,7 @@ INT WINAPI wWinMain(
                         NULL
                         ))
                     {
-                        RtlExitUserProcess(STATUS_SUCCESS);
+                        PhExitApplication(STATUS_SUCCESS);
                     }
 
                     PhDereferenceObject(applicationFileName);
@@ -223,7 +224,6 @@ INT WINAPI wWinMain(
             status = PhLoadMappedImageEx(
                 PhGetString(PvFileName),
                 fileHandle,
-                TRUE,
                 &PvMappedImage
                 );
             NtClose(fileHandle);
@@ -251,7 +251,7 @@ INT WINAPI wWinMain(
         if (!NT_SUCCESS(status))
         {
             if (status == STATUS_IMAGE_SUBSYSTEM_NOT_PRESENT)
-                PhShowError2(NULL, L"Unable to load the file.", L"PE Viewer does not support this image type.");
+                PhShowError2(NULL, L"Unable to load the file.", L"%s", L"PE Viewer does not support this image type.");
             else
                 PhShowStatus(NULL, L"Unable to load the file.", status, 0);
         }

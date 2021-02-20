@@ -35,6 +35,39 @@ VOID NetAdapterUpdateGraph(
     InvalidateRect(Context->GraphHandle, NULL, FALSE);
 }
 
+PPH_STRING NetAdapterFormatLinkSpeed(
+    _Inout_ ULONG64 LinkSpeed
+    )
+{
+    DOUBLE linkSpeedValue;
+
+    //return PhFormatSize(LinkSpeed / BITS_IN_ONE_BYTE, ULONG_MAX);
+    //linkSpeedValue / 1000000.0   L"%.1f Mbps"
+
+    linkSpeedValue = LinkSpeed / 1000000000.0;
+
+    if (linkSpeedValue > 1.0)
+    {
+        return PhFormatString(L"%.2f Gbps", linkSpeedValue);
+    }
+
+    linkSpeedValue = LinkSpeed / 1000000.0;
+
+    if (linkSpeedValue > 1.0)
+    {
+        return PhFormatString(L"%.2f Mbps", linkSpeedValue);
+    }
+
+    linkSpeedValue = LinkSpeed / 1000.0;
+
+    if (linkSpeedValue > 1.0)
+    {
+        return PhFormatString(L"%.2f Kbps", linkSpeedValue);
+    }
+
+    return PhFormatString(L"%.2f Bps", linkSpeedValue);
+}
+
 VOID NetAdapterUpdatePanel(
     _Inout_ PDV_NETADAPTER_SYSINFO_CONTEXT Context
     )
@@ -295,12 +328,13 @@ INT_PTR CALLBACK NetAdapterDialogProc(
             PPH_LAYOUT_ITEM panelItem;
 
             context->WindowHandle = hwndDlg;
-            context->AdapterNameLabel = GetDlgItem(hwndDlg, IDC_ADAPTERNAME);
             context->AdapterTextLabel = GetDlgItem(hwndDlg, IDC_ADAPTERTEXT);
+            context->AdapterNameLabel = GetDlgItem(hwndDlg, IDC_ADAPTERNAME);
 
             PhInitializeGraphState(&context->GraphState);
             PhInitializeLayoutManager(&context->LayoutManager, hwndDlg);
 
+            PhAddLayoutItem(&context->LayoutManager, context->AdapterTextLabel, NULL, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT | PH_LAYOUT_FORCE_INVALIDATE);
             PhAddLayoutItem(&context->LayoutManager, context->AdapterNameLabel, NULL, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT | PH_LAYOUT_FORCE_INVALIDATE);
             graphItem = PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDC_GRAPH_LAYOUT), NULL, PH_ANCHOR_ALL);
             panelItem = PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDC_LAYOUT), NULL, PH_ANCHOR_LEFT | PH_ANCHOR_RIGHT | PH_ANCHOR_BOTTOM);

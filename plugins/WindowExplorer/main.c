@@ -75,7 +75,7 @@ VOID NTAPI MenuItemCallback(
             WE_WINDOW_SELECTOR selector;
 
             selector.Type = WeWindowSelectorAll;
-            WeShowWindowsDialog(WE_PhMainWndHandle, &selector);
+            WeShowWindowsDialog(WeGetMainWindowHandle(), &selector);
         }
         break;
     case ID_VIEW_DESKTOPWINDOWS:
@@ -87,7 +87,7 @@ VOID NTAPI MenuItemCallback(
             EnumDesktops(GetProcessWindowStation(), WepEnumDesktopProc, (LPARAM)desktopNames);
 
             if (PhaChoiceDialog(
-                WE_PhMainWndHandle,
+                WeGetMainWindowHandle(),
                 L"Desktop Windows",
                 L"Display windows for the following desktop:",
                 (PWSTR *)desktopNames->Items,
@@ -103,7 +103,7 @@ VOID NTAPI MenuItemCallback(
 
                 selector.Type = WeWindowSelectorDesktop;
                 PhSetReference(&selector.Desktop.DesktopName, selectedChoice);
-                WeShowWindowsDialog(WE_PhMainWndHandle, &selector);
+                WeShowWindowsDialog(WeGetMainWindowHandle(), &selector);
             }
         }
         break;
@@ -113,7 +113,7 @@ VOID NTAPI MenuItemCallback(
 
             selector.Type = WeWindowSelectorProcess;
             selector.Process.ProcessId = ((PPH_PROCESS_ITEM)menuItem->Context)->ProcessId;
-            WeShowWindowsDialog(WE_PhMainWndHandle, &selector);
+            WeShowWindowsDialog(WeGetMainWindowHandle(), &selector);
         }
         break;
     case ID_THREAD_WINDOWS:
@@ -122,7 +122,7 @@ VOID NTAPI MenuItemCallback(
 
             selector.Type = WeWindowSelectorThread;
             selector.Thread.ThreadId = ((PPH_THREAD_ITEM)menuItem->Context)->ThreadId;
-            WeShowWindowsDialog(WE_PhMainWndHandle, &selector);
+            WeShowWindowsDialog(WeGetMainWindowHandle(), &selector);
         }
         break;
     }
@@ -232,7 +232,8 @@ LOGICAL DllMain(
                 { ScalableIntegerPairSettingType, SETTING_NAME_WINDOWS_PROPERTY_SIZE, L"@96|690,540" },
                 { StringSettingType, SETTING_NAME_WINDOWS_PROPLIST_COLUMNS, L"" },
                 { StringSettingType, SETTING_NAME_WINDOWS_PROPSTORAGE_COLUMNS, L"" },
-                { IntegerSettingType, SETTING_NAME_WINDOW_ENUM_ALTERNATE, L"0" }
+                { IntegerSettingType, SETTING_NAME_WINDOW_ENUM_ALTERNATE, L"0" },
+                { IntegerSettingType, SETTING_NAME_WINDOW_ENABLE_PREVIEW, L"0" },
             };
 
             PluginInstance = PhRegisterPlugin(PLUGIN_NAME, Instance, &info);

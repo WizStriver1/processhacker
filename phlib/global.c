@@ -3,7 +3,7 @@
  *   global variables and initialization functions
  *
  * Copyright (C) 2010-2013 wj32
- * Copyright (C) 2017-2020 dmex
+ * Copyright (C) 2017-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -37,19 +37,13 @@ BOOLEAN PhHeapInitialization(
     _In_opt_ SIZE_T HeapCommitSize
     );
 
-PHLIBAPI PVOID PhInstanceHandle = NULL;
-PHLIBAPI PWSTR PhApplicationName = NULL;
+PVOID PhInstanceHandle = NULL;
+PWSTR PhApplicationName = NULL;
 PHLIBAPI ULONG PhGlobalDpi = 96;
 PVOID PhHeapHandle = NULL;
-PHLIBAPI RTL_OSVERSIONINFOEXW PhOsVersion = { 0 };
+RTL_OSVERSIONINFOEXW PhOsVersion = { 0 };
 PHLIBAPI SYSTEM_BASIC_INFORMATION PhSystemBasicInformation = { 0 };
-PHLIBAPI ULONG WindowsVersion = WINDOWS_NEW;
-
-PHLIBAPI ACCESS_MASK ProcessQueryAccess = PROCESS_QUERY_LIMITED_INFORMATION;
-PHLIBAPI ACCESS_MASK ProcessAllAccess = STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x1fff;
-PHLIBAPI ACCESS_MASK ThreadQueryAccess = THREAD_QUERY_LIMITED_INFORMATION;
-PHLIBAPI ACCESS_MASK ThreadSetAccess = THREAD_SET_LIMITED_INFORMATION;
-PHLIBAPI ACCESS_MASK ThreadAllAccess = STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0xfff;
+ULONG WindowsVersion = WINDOWS_NEW;
 
 // Internal data
 #ifdef DEBUG
@@ -172,7 +166,11 @@ VOID PhInitializeWindowsVersion(
     // Windows 10, Windows Server 2016
     else if (majorVersion == 10 && minorVersion == 0)
     {
-        if (buildVersion >= 19041)
+        if (buildVersion >= 19042)
+        {
+            WindowsVersion = WINDOWS_10_20H2;
+        }
+        else if (buildVersion >= 19041)
         {
             WindowsVersion = WINDOWS_10_20H1;
         }
@@ -254,12 +252,15 @@ BOOLEAN PhHeapInitialization(
         if (!PhHeapHandle)
             return FALSE;
 
-        RtlSetHeapInformation(
-            PhHeapHandle,
-            HeapCompatibilityInformation,
-            &(ULONG){ HEAP_COMPATIBILITY_LFH },
-            sizeof(ULONG)
-            );
+        if (WindowsVersion >= WINDOWS_VISTA)
+        {
+            RtlSetHeapInformation(
+                PhHeapHandle,
+                HeapCompatibilityInformation,
+                &(ULONG){ HEAP_COMPATIBILITY_LFH },
+                sizeof(ULONG)
+                );
+        }
     }
 
     return TRUE;

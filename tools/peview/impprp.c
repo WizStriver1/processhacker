@@ -31,7 +31,7 @@ PPH_STRING PvpQueryModuleOrdinalName(
     PPH_STRING exportName = NULL;
     PH_MAPPED_IMAGE mappedImage;
 
-    if (NT_SUCCESS(PhLoadMappedImage(FileName->Buffer, NULL, TRUE, &mappedImage)))
+    if (NT_SUCCESS(PhLoadMappedImage(FileName->Buffer, NULL, &mappedImage)))
     {
         PH_MAPPED_IMAGE_EXPORTS exports;
         PH_MAPPED_IMAGE_EXPORT_ENTRY exportEntry;
@@ -53,7 +53,7 @@ PPH_STRING PvpQueryModuleOrdinalName(
                         {
                             exportName = PhZeroExtendToUtf16(exportEntry.Name);
 
-                            if (exportName->Buffer[0] == '?')
+                            if (exportName->Buffer[0] == L'?')
                             {
                                 PPH_STRING undecoratedName;
 
@@ -69,7 +69,7 @@ PPH_STRING PvpQueryModuleOrdinalName(
 
                                 forwardName = PhZeroExtendToUtf16(exportFunction.ForwardedName);
 
-                                if (forwardName->Buffer[0] == '?')
+                                if (forwardName->Buffer[0] == L'?')
                                 {
                                     PPH_STRING undecoratedName;
 
@@ -265,7 +265,7 @@ VOID PvpProcessImports(
 
                         importName = PhZeroExtendToUtf16(importEntry.Name);
 
-                        if (importName->Buffer[0] == '?')
+                        if (importName->Buffer[0] == L'?')
                         {
                             PPH_STRING undecoratedName;
 

@@ -144,7 +144,7 @@ INT_PTR CALLBACK WepWindowPreviewDlgProc(
     _In_ LPARAM lParam
     );
 
-#define DEFINE_PAIR(Symbol) { L#Symbol, Symbol }
+#define DEFINE_PAIR(Symbol) { TEXT(#Symbol), Symbol }
 
 static STRING_INTEGER_PAIR WepStylePairs[] =
 {
@@ -306,12 +306,15 @@ NTSTATUS WepPropertiesThreadStart(
             context);
         PvAddPropPage(propContext, newPage);
 
-        // Preview page
-        newPage = PvCreatePropPageContext(
-            MAKEINTRESOURCE(IDD_WNDPREVIEW),
-            WepWindowPreviewDlgProc,
-            context);
-        PvAddPropPage(propContext, newPage);
+        if (PhGetIntegerSetting(SETTING_NAME_WINDOW_ENABLE_PREVIEW))
+        {
+            // Preview page
+            newPage = PvCreatePropPageContext(
+                MAKEINTRESOURCE(IDD_WNDPREVIEW),
+                WepWindowPreviewDlgProc,
+                context);
+            PvAddPropPage(propContext, newPage);
+        }
 
         PhModalPropertySheet(&propContext->PropSheetHeader);
         PhDereferenceObject(propContext);

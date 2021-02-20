@@ -29,7 +29,7 @@ static TASKDIALOG_BUTTON TaskDialogButtonArray[] =
     { IDYES, L"Install" }
 };
 
-BOOLEAN UpdaterCheckKphInstallState(
+BOOLEAN UpdaterIsKphInstallRequired(
     VOID
     )
 {
@@ -65,7 +65,7 @@ BOOLEAN UpdaterCheckApplicationDirectory(
     PPH_STRING directory;
     PPH_STRING file;
 
-    if (UpdaterCheckKphInstallState())
+    if (UpdaterIsKphInstallRequired())
         return FALSE;
 
     directory = PhGetApplicationDirectory();
@@ -141,18 +141,18 @@ HRESULT CALLBACK FinalTaskDialogCallbackProc(
                 info.hwnd = hwndDlg;
                 info.fMask = SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI | SEE_MASK_NOZONECHECKS;
 
-                ProcessHacker_PrepareForEarlyShutdown(PhMainWndHandle);
+                ProcessHacker_PrepareForEarlyShutdown();
 
                 if (ShellExecuteEx(&info))
                 {
-                    ProcessHacker_Destroy(PhMainWndHandle);
+                    ProcessHacker_Destroy();
                 }
                 else
                 {
                     ULONG errorCode = GetLastError();
 
                     // Install failed, cancel the shutdown.
-                    ProcessHacker_CancelEarlyShutdown(PhMainWndHandle);
+                    ProcessHacker_CancelEarlyShutdown();
 
                     // Show error dialog.
                     if (errorCode != ERROR_CANCELLED) // Ignore UAC decline.
@@ -205,15 +205,61 @@ VOID ShowUpdateInstallDialog(
     TaskDialogNavigatePage(Context->DialogHandle, &config);
 }
 
+PPH_STRING UpdaterGetLatestVersionText(
+    _In_ PPH_UPDATER_CONTEXT Context
+    )
+{
+    PPH_STRING version;
+    PPH_STRING commit;
+    ULONG majorVersion;
+    ULONG minorVersion;
+    ULONG buildVersion;
+    ULONG revisionVersion;
+
+    PhGetPhVersionNumbers(&majorVersion, &minorVersion, &buildVersion, &revisionVersion);
+    commit = PhGetPhVersionHash();
+
+    if (commit && commit->Length > 4)
+    {
+        version = PhFormatString(
+            L"%lu.%lu.%lu (%s)",
+            majorVersion,
+            minorVersion,
+            revisionVersion,
+            PhGetString(commit)
+            );
+        PhMoveReference(&version, PhFormatString(
+            L"%s\r\n\r\n<A HREF=\"changelog.txt\">View changelog</A>",
+            PhGetStringOrEmpty(version)
+            ));
+    }
+    else
+    {
+        version = PhFormatString(
+            L"Process Hacker %lu.%lu.%lu",
+            majorVersion,
+            minorVersion,
+            revisionVersion
+            );
+        PhMoveReference(&version, PhFormatString(
+            L"%s\r\n\r\n<A HREF=\"changelog.txt\">View changelog</A>",
+            PhGetStringOrEmpty(version)
+            ));
+    }
+
+    if (commit)
+    {
+        PhDereferenceObject(commit);
+    }
+
+    return version;
+}
+
 VOID ShowLatestVersionDialog(
     _In_ PPH_UPDATER_CONTEXT Context
     )
 {
     TASKDIALOGCONFIG config;
-    LARGE_INTEGER time;
-    SYSTEMTIME systemTime = { 0 };
-    PIMAGE_DOS_HEADER imageDosHeader;
-    PIMAGE_NT_HEADERS imageNtHeader;
 
     memset(&config, 0, sizeof(TASKDIALOGCONFIG));
     config.cbSize = sizeof(TASKDIALOGCONFIG);
@@ -223,20 +269,10 @@ VOID ShowLatestVersionDialog(
     config.cxWidth = 200;
     config.pfCallback = FinalTaskDialogCallbackProc;
     config.lpCallbackData = (LONG_PTR)Context;
-    
-    // HACK
-    imageDosHeader = (PIMAGE_DOS_HEADER)NtCurrentPeb()->ImageBaseAddress;
-    imageNtHeader = (PIMAGE_NT_HEADERS)PTR_ADD_OFFSET(imageDosHeader, imageDosHeader->e_lfanew);
-    RtlSecondsSince1970ToTime(imageNtHeader->FileHeader.TimeDateStamp, &time);
-    PhLargeIntegerToLocalSystemTime(&systemTime, &time);
 
     config.pszWindowTitle = L"Process Hacker - Updater";
     config.pszMainInstruction = L"You're running the latest version.";
-    config.pszContent = PhaFormatString(
-        L"Version: v%s\r\nCompiled: %s\r\n\r\n<A HREF=\"changelog.txt\">View Changelog</A>",
-        PhGetStringOrEmpty(Context->CurrentVersionString),
-        PhaFormatDateTime(&systemTime)->Buffer
-        )->Buffer;
+    config.pszContent = PH_AUTO_T(PH_STRING, UpdaterGetLatestVersionText(Context))->Buffer;
 
     TaskDialogNavigatePage(Context->DialogHandle, &config);
 }

@@ -1018,7 +1018,7 @@ VOID PhMipRefresh(
     )
 {
     if (PhMipPinned)
-        ProcessHacker_Refresh(PhMainWndHandle);
+        ProcessHacker_Refresh();
 
     PostMessage(PhMipWindow, MIP_MSG_UPDATE, 0, 0);
 }
@@ -1547,13 +1547,10 @@ BOOLEAN PhMipListSectionTreeNewCallback(
             rect.right -= MIP_CELL_PADDING;
             rect.bottom -= MIP_CELL_PADDING;
 
-            if (processItem->LargeIcon)
-                icon = processItem->LargeIcon;
-            else
-                PhGetStockApplicationIcon(NULL, &icon);
+            icon = PhGetImageListIcon(processItem->LargeIconIndex, TRUE);
+            DrawIconEx(hdc, rect.left, rect.top, icon, PhLargeIconSize.X, PhLargeIconSize.Y,0, NULL, DI_NORMAL);
+            DestroyIcon(icon);
 
-            DrawIconEx(hdc, rect.left, rect.top, icon, PhLargeIconSize.X, PhLargeIconSize.Y,
-                0, NULL, DI_NORMAL);
             rect.left += (MIP_CELL_PADDING - MIP_ICON_PADDING) + PhLargeIconSize.X + MIP_CELL_PADDING;
             rect.top += MIP_CELL_PADDING - MIP_ICON_PADDING;
             SelectFont(hdc, CurrentParameters.Font);
@@ -1927,8 +1924,8 @@ VOID PhMipHandleListSectionCommand(
             PhPinMiniInformation(MiniInfoActivePinType, -1, 0, 0, NULL, NULL);
             PhPinMiniInformation(MiniInfoHoverPinType, -1, 0, 0, NULL, NULL);
 
-            ProcessHacker_ToggleVisible(PhMainWndHandle, TRUE);
-            ProcessHacker_SelectTabPage(PhMainWndHandle, 0);
+            ProcessHacker_ToggleVisible(TRUE);
+            ProcessHacker_SelectTabPage(0);
             PhSelectAndEnsureVisibleProcessNodes((PPH_PROCESS_NODE*)nodes->Items, nodes->Count);
             PhDereferenceObject(nodes);
         }

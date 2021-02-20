@@ -3,7 +3,7 @@
  *   plugins
  *
  * Copyright (C) 2010-2011 wj32
- * Copyright (C) 2017-2018 dmex
+ * Copyright (C) 2017-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -24,13 +24,11 @@
 #include <phapp.h>
 #include <emenu.h>
 #include <settings.h>
-#include <mainwnd.h>
 #include <colmgr.h>
 #include <phplug.h>
 #include <phsettings.h>
 
-#define WM_PH_PLUGINS_SHOWDIALOG (WM_APP + 401)
-#define WM_PH_PLUGINS_SHOWPROPERTIES (WM_APP + 402)
+#define WM_PH_PLUGINS_SHOWPROPERTIES (WM_APP + 401)
 
 static HANDLE PhPluginsThreadHandle = NULL;
 static HWND PhPluginsWindowHandle = NULL;
@@ -38,18 +36,15 @@ static PH_EVENT PhPluginsInitializedEvent = PH_EVENT_INIT;
 
 typedef struct _PH_PLUGMAN_CONTEXT
 {
-    PH_LAYOUT_MANAGER LayoutManager;
-    RECT MinimumSize;
-
-    HFONT NormalFontHandle;
-    HFONT TitleFontHandle;
-
     HWND WindowHandle;
     HWND TreeNewHandle;
+    HFONT NormalFontHandle;
+    HFONT TitleFontHandle;
     ULONG TreeNewSortColumn;
     PH_SORT_ORDER TreeNewSortOrder;
     PPH_HASHTABLE NodeHashtable;
     PPH_LIST NodeList;
+    PH_LAYOUT_MANAGER LayoutManager;
 } PH_PLUGMAN_CONTEXT, *PPH_PLUGMAN_CONTEXT;
 
 typedef enum _PH_PLUGIN_TREE_ITEM_MENU
@@ -62,7 +57,6 @@ typedef enum _PH_PLUGIN_TREE_ITEM_MENU
 typedef enum _PH_PLUGIN_TREE_COLUMN_ITEM
 {
     PH_PLUGIN_TREE_COLUMN_ITEM_NAME,
-    PH_PLUGIN_TREE_COLUMN_ITEM_AUTHOR,
     PH_PLUGIN_TREE_COLUMN_ITEM_VERSION,
     PH_PLUGIN_TREE_COLUMN_ITEM_MAXIMUM
 } PH_PLUGIN_TREE_COLUMN_ITEM;
@@ -77,7 +71,6 @@ typedef struct _PH_PLUGIN_TREE_ROOT_NODE
     PPH_STRING InternalName;
     PPH_STRING Name;
     PPH_STRING Version;
-    PPH_STRING Author;
     PPH_STRING Description;
 
     PH_STRINGREF TextCache[PH_PLUGIN_TREE_COLUMN_ITEM_MAXIMUM];
@@ -124,12 +117,6 @@ INT_PTR CALLBACK PhpPluginsDisabledDlgProc(
 BEGIN_SORT_FUNCTION(Name)
 {
     sortResult = PhCompareString(node1->Name, node2->Name, TRUE);
-}
-END_SORT_FUNCTION
-
-BEGIN_SORT_FUNCTION(Author)
-{
-    sortResult = PhCompareString(node1->Author, node2->Author, TRUE);
 }
 END_SORT_FUNCTION
 
@@ -186,7 +173,6 @@ VOID DestroyPluginsNode(
     PhClearReference(&Node->InternalName);
     PhClearReference(&Node->Name);
     PhClearReference(&Node->Version);
-    PhClearReference(&Node->Author);
     PhClearReference(&Node->Description);
 
     PhFree(Node);
@@ -213,9 +199,10 @@ PPH_PLUGIN_TREE_ROOT_NODE AddPluginsNode(
     pluginNode->PluginInstance = Plugin;
     pluginNode->PluginOptions = Plugin->Information.HasOptions;
     pluginNode->InternalName = PhCreateString2(&Plugin->Name);
-    pluginNode->Name = PhCreateString(Plugin->Information.DisplayName);
-    pluginNode->Author = PhCreateString(Plugin->Information.Author);
-    pluginNode->Description = PhCreateString(Plugin->Information.Description);
+    if (Plugin->Information.DisplayName)
+        pluginNode->Name = PhCreateString(Plugin->Information.DisplayName);
+    if (Plugin->Information.Description)
+        pluginNode->Description = PhCreateString(Plugin->Information.Description);
 
     if (fileName = PhGetPluginFileName(Plugin))
     {
@@ -317,7 +304,7 @@ BOOLEAN NTAPI PluginsTreeNewCallback(
                 static PVOID sortFunctions[] =
                 {
                     SORT_FUNCTION(Name),
-                    SORT_FUNCTION(Author),
+                    //SORT_FUNCTION(Author),
                     SORT_FUNCTION(Version)
                 };
                 int (__cdecl *sortFunction)(void *, const void *, const void *);
@@ -362,9 +349,6 @@ BOOLEAN NTAPI PluginsTreeNewCallback(
             {
             case PH_PLUGIN_TREE_COLUMN_ITEM_NAME:
                 getCellText->Text = PhGetStringRef(node->Name);
-                break;
-            case PH_PLUGIN_TREE_COLUMN_ITEM_AUTHOR:
-                getCellText->Text = PhGetStringRef(node->Author);
                 break;
             case PH_PLUGIN_TREE_COLUMN_ITEM_VERSION:
                 getCellText->Text = PhGetStringRef(node->Version);
@@ -569,12 +553,12 @@ VOID InitializePluginsTree(
     _Inout_ PPH_PLUGMAN_CONTEXT Context
     )
 {
-    Context->NodeList = PhCreateList(100);
+    Context->NodeList = PhCreateList(20);
     Context->NodeHashtable = PhCreateHashtable(
         sizeof(PPH_PLUGIN_TREE_ROOT_NODE),
         PluginsNodeHashtableEqualFunction,
         PluginsNodeHashtableHashFunction,
-        100
+        20
         );
 
     Context->NormalFontHandle = PhCreateCommonFont(-10, FW_NORMAL, NULL);
@@ -586,7 +570,7 @@ VOID InitializePluginsTree(
     TreeNew_SetRowHeight(Context->TreeNewHandle, PH_SCALE_DPI(48));
 
     PhAddTreeNewColumnEx2(Context->TreeNewHandle, PH_PLUGIN_TREE_COLUMN_ITEM_NAME, TRUE, L"Plugin", 80, PH_ALIGN_LEFT, 0, 0, TN_COLUMN_FLAG_CUSTOMDRAW);
-    PhAddTreeNewColumnEx2(Context->TreeNewHandle, PH_PLUGIN_TREE_COLUMN_ITEM_AUTHOR, TRUE, L"Author", 80, PH_ALIGN_LEFT, 1, 0, 0);
+    //PhAddTreeNewColumnEx2(Context->TreeNewHandle, PH_PLUGIN_TREE_COLUMN_ITEM_AUTHOR, TRUE, L"Author", 80, PH_ALIGN_LEFT, 1, 0, 0);
     //PhAddTreeNewColumnEx2(Context->TreeNewHandle, PH_PLUGIN_TREE_COLUMN_ITEM_VERSION, TRUE, L"Version", 80, PH_ALIGN_CENTER, 2, DT_CENTER, 0);
 
     TreeNew_SetTriState(Context->TreeNewHandle, TRUE);
@@ -641,27 +625,24 @@ PWSTR PhpGetPluginBaseName(
     }
 }
 
-VOID PhpEnumerateLoadedPlugins(
-    _In_ PPH_PLUGMAN_CONTEXT Context
+BOOLEAN NTAPI PhpEnumeratePluginCallback(
+    _In_ PPH_PLUGIN Information,
+    _In_opt_ PVOID Context
     )
 {
-    PPH_AVL_LINKS links;
+    PH_STRINGREF pluginBaseName;
 
-    for (links = PhMinimumElementAvlTree(&PhPluginsByName); links; links = PhSuccessorElementAvlTree(links))
+    PhInitializeStringRefLongHint(&pluginBaseName, PhpGetPluginBaseName(Information));
+
+    if (!PhIsPluginDisabled(&pluginBaseName))
     {
-        PPH_PLUGIN plugin = CONTAINING_RECORD(links, PH_PLUGIN, Links);
-        PH_STRINGREF pluginBaseName;
-
-        PhInitializeStringRefLongHint(&pluginBaseName, PhpGetPluginBaseName(plugin));
-
-        if (PhIsPluginDisabled(&pluginBaseName))
-            continue;
-
-        AddPluginsNode(Context, plugin);
+        AddPluginsNode(Context, Information);
     }
+
+    return TRUE;
 }
 
-INT_PTR CALLBACK PhpPluginsDlgProc(
+INT_PTR CALLBACK PhPluginsDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
     _In_ WPARAM wParam,
@@ -672,9 +653,7 @@ INT_PTR CALLBACK PhpPluginsDlgProc(
 
     if (uMsg == WM_INITDIALOG)
     {
-        context = PhAllocate(sizeof(PH_PLUGMAN_CONTEXT));
-        memset(context, 0, sizeof(PH_PLUGMAN_CONTEXT));
-
+        context = PhAllocateZero(sizeof(PH_PLUGMAN_CONTEXT));
         PhSetWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT, context);
     }
     else
@@ -692,27 +671,14 @@ INT_PTR CALLBACK PhpPluginsDlgProc(
             context->WindowHandle = hwndDlg;
             context->TreeNewHandle = GetDlgItem(hwndDlg, IDC_PLUGINTREE);
 
-            PhSetApplicationWindowIcon(hwndDlg);
-
             InitializePluginsTree(context);
 
             PhInitializeLayoutManager(&context->LayoutManager, hwndDlg);
             PhAddLayoutItem(&context->LayoutManager, context->TreeNewHandle, NULL, PH_ANCHOR_ALL);
-            PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDC_DISABLED), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_LEFT);
-            PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDOK), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_RIGHT);
+            PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDC_INSTRUCTION), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_LEFT);
+            PhAddLayoutItem(&context->LayoutManager, GetDlgItem(hwndDlg, IDC_DISABLED), NULL, PH_ANCHOR_BOTTOM | PH_ANCHOR_RIGHT);
 
-            if (PhGetIntegerPairSetting(L"PluginManagerWindowPosition").X != 0)
-                PhLoadWindowPlacementFromSetting(L"PluginManagerWindowPosition", L"PluginManagerWindowSize", hwndDlg);
-            else
-                PhCenterWindow(hwndDlg, PhMainWndHandle);
-
-            context->MinimumSize.left = 0;
-            context->MinimumSize.top = 0;
-            context->MinimumSize.right = 300;
-            context->MinimumSize.bottom = 100;
-            MapDialogRect(hwndDlg, &context->MinimumSize);
-
-            PhpEnumerateLoadedPlugins(context);
+            PhEnumeratePlugins(PhpEnumeratePluginCallback, context);
             TreeNew_AutoSizeColumn(context->TreeNewHandle, PH_PLUGIN_TREE_COLUMN_ITEM_NAME, TN_AUTOSIZE_REMAINING_SPACE);
             PhSetWindowText(GetDlgItem(hwndDlg, IDC_DISABLED), PhaFormatString(L"Disabled Plugins (%lu)", PhpDisabledPluginsCount())->Buffer);
 
@@ -721,8 +687,6 @@ INT_PTR CALLBACK PhpPluginsDlgProc(
         break;
     case WM_DESTROY:
         {
-            PhSaveWindowPlacementToSetting(L"PluginManagerWindowPosition", L"PluginManagerWindowSize", hwndDlg);
-
             PhDeleteLayoutManager(&context->LayoutManager);
 
             DeletePluginsTree(context);
@@ -730,30 +694,12 @@ INT_PTR CALLBACK PhpPluginsDlgProc(
             PhRemoveWindowContext(hwndDlg, PH_WINDOW_CONTEXT_DEFAULT);
 
             PhFree(context);
-
-            PostQuitMessage(0);
-        }
-        break;
-    case WM_PH_PLUGINS_SHOWDIALOG:
-        {
-            if (IsMinimized(hwndDlg))
-                ShowWindow(hwndDlg, SW_RESTORE);
-            else
-                ShowWindow(hwndDlg, SW_SHOW);
-
-            SetForegroundWindow(hwndDlg);
         }
         break;
     case WM_COMMAND:
         {
             switch (GET_WM_COMMAND_ID(wParam, lParam))
             {
-            case IDOK:
-            case IDCANCEL:
-                {
-                    DestroyWindow(hwndDlg);
-                }
-                break;
             case IDC_DISABLED:
                 {
                     DialogBox(
@@ -764,7 +710,7 @@ INT_PTR CALLBACK PhpPluginsDlgProc(
                         );
 
                     ClearPluginsTree(context);
-                    PhpEnumerateLoadedPlugins(context);
+                    PhEnumeratePlugins(PhpEnumeratePluginCallback, context);
                     TreeNew_AutoSizeColumn(context->TreeNewHandle, PH_PLUGIN_TREE_COLUMN_ITEM_NAME, TN_AUTOSIZE_REMAINING_SPACE);
                     PhSetWindowText(GetDlgItem(hwndDlg, IDC_DISABLED), PhaFormatString(L"Disabled Plugins (%lu)", PhpDisabledPluginsCount())->Buffer);
                 }
@@ -878,89 +824,85 @@ INT_PTR CALLBACK PhpPluginsDlgProc(
             TreeNew_AutoSizeColumn(context->TreeNewHandle, PH_PLUGIN_TREE_COLUMN_ITEM_NAME, TN_AUTOSIZE_REMAINING_SPACE);
         }
         break;
-    case WM_SIZING:
-        {
-            PhResizingMinimumSize((PRECT)lParam, wParam, context->MinimumSize.right, context->MinimumSize.bottom);
-        }
-        break;
     }
 
     return FALSE;
 }
 
-NTSTATUS PhpPluginsDialogThreadStart(
-    _In_ PVOID Parameter
-    )
-{
-    BOOL result;
-    MSG message;
-    PH_AUTO_POOL autoPool;
-
-    PhInitializeAutoPool(&autoPool);
-
-    PhPluginsWindowHandle = CreateDialog(
-        PhInstanceHandle,
-        MAKEINTRESOURCE(IDD_PLUGINS),
-        NULL,
-        PhpPluginsDlgProc
-        );
-
-    PhSetEvent(&PhPluginsInitializedEvent);
-
-    while (result = GetMessage(&message, NULL, 0, 0))
-    {
-        if (result == -1)
-            break;
-
-        if (!IsDialogMessage(PhPluginsWindowHandle, &message))
-        {
-            TranslateMessage(&message);
-            DispatchMessage(&message);
-        }
-
-        PhDrainAutoPool(&autoPool);
-    }
-
-    PhDeleteAutoPool(&autoPool);
-    PhResetEvent(&PhPluginsInitializedEvent);
-
-    if (PhPluginsThreadHandle)
-    {
-        NtClose(PhPluginsThreadHandle);
-        PhPluginsThreadHandle = NULL;
-    }
-
-    return STATUS_SUCCESS;
-}
-
-VOID PhShowPluginsDialog(
-    _In_ HWND ParentWindowHandle
-    )
-{
-    if (PhPluginsEnabled)
-    {
-        if (!PhPluginsThreadHandle)
-        {
-            if (!NT_SUCCESS(PhCreateThreadEx(&PhPluginsThreadHandle, PhpPluginsDialogThreadStart, NULL)))
-            {
-                PhShowError(PhMainWndHandle, L"Unable to create the window.");
-                return;
-            }
-
-            PhWaitForEvent(&PhPluginsInitializedEvent, NULL);
-        }
-
-        PostMessage(PhPluginsWindowHandle, WM_PH_PLUGINS_SHOWDIALOG, 0, 0);
-    }
-    else
-    {
-        PhShowInformation2(
-            ParentWindowHandle, 
-            L"Plugins are not enabled.", 
-            L"To use plugins enable them in Options and restart Process Hacker."
-            );
-    }
-}
+//NTSTATUS PhpPluginsDialogThreadStart(
+//    _In_ PVOID Parameter
+//    )
+//{
+//    BOOL result;
+//    MSG message;
+//    PH_AUTO_POOL autoPool;
+//
+//    PhInitializeAutoPool(&autoPool);
+//
+//    PhPluginsWindowHandle = CreateDialog(
+//        PhInstanceHandle,
+//        MAKEINTRESOURCE(IDD_PLUGINS),
+//        NULL,
+//        PhPluginsDlgProc
+//        );
+//
+//    PhSetEvent(&PhPluginsInitializedEvent);
+//
+//    while (result = GetMessage(&message, NULL, 0, 0))
+//    {
+//        if (result == -1)
+//            break;
+//
+//        if (!IsDialogMessage(PhPluginsWindowHandle, &message))
+//        {
+//            TranslateMessage(&message);
+//            DispatchMessage(&message);
+//        }
+//
+//        PhDrainAutoPool(&autoPool);
+//    }
+//
+//    PhDeleteAutoPool(&autoPool);
+//    PhResetEvent(&PhPluginsInitializedEvent);
+//
+//    if (PhPluginsThreadHandle)
+//    {
+//        NtClose(PhPluginsThreadHandle);
+//        PhPluginsThreadHandle = NULL;
+//    }
+//
+//    return STATUS_SUCCESS;
+//}
+//
+//VOID PhShowPluginsDialog(
+//    _In_ HWND ParentWindowHandle
+//    )
+//{
+//    if (PhPluginsEnabled)
+//    {
+//        if (!PhPluginsThreadHandle)
+//        {
+//            if (!NT_SUCCESS(PhCreateThreadEx(&PhPluginsThreadHandle, PhpPluginsDialogThreadStart, NULL)))
+//            {
+//                PhShowError(PhMainWndHandle, L"%s", L"Unable to create the window.");
+//                return;
+//            }
+//
+//            PhWaitForEvent(&PhPluginsInitializedEvent, NULL);
+//        }
+//
+//        PostMessage(PhPluginsWindowHandle, WM_PH_PLUGINS_SHOWDIALOG, 0, 0);
+//    }
+//    else
+//    {
+//        PhShowInformation2(
+//            ParentWindowHandle, 
+//            L"Plugins are not enabled.",
+//            L"%s",
+//            L"To use plugins enable them in Options and restart Process Hacker."
+//            );
+//    }
+//}
 
 VOID PhpRefreshPluginDetails(
     _In_ HWND hwndDlg,

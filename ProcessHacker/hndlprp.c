@@ -656,9 +656,10 @@ VOID PhpUpdateHandleGeneral(
     }
     else if (PhEqualString2(Context->HandleItem->TypeName, L"ALPC Port", TRUE))
     {
+#if (PHNT_VERSION >= PHNT_WIN7)
         NTSTATUS status;
         HANDLE processHandle;
-        HANDLE alpcPortHandle;
+        HANDLE alpcPortHandle = NULL;
 
         if (NT_SUCCESS(status = PhOpenProcess(
             &processHandle,
@@ -678,7 +679,7 @@ VOID PhpUpdateHandleGeneral(
             NtClose(processHandle);
         }
 
-        if (NT_SUCCESS(status))
+        if (NT_SUCCESS(status) && alpcPortHandle)
         {
             ALPC_BASIC_INFORMATION basicInfo;
 
@@ -699,6 +700,7 @@ VOID PhpUpdateHandleGeneral(
 
             NtClose(alpcPortHandle);
         }
+#endif
     }
     else if (PhEqualString2(Context->HandleItem->TypeName, L"EtwRegistration", TRUE))
     {
@@ -708,7 +710,7 @@ VOID PhpUpdateHandleGeneral(
     {
         NTSTATUS status;
         HANDLE processHandle;
-        HANDLE fileHandle;
+        HANDLE fileHandle = NULL;
 
         if (NT_SUCCESS(status = PhOpenProcess(
             &processHandle,
@@ -728,7 +730,7 @@ VOID PhpUpdateHandleGeneral(
             NtClose(processHandle);
         }
 
-        if (NT_SUCCESS(status))
+        if (NT_SUCCESS(status) && fileHandle)
         {
             BOOLEAN disableFlushButton = FALSE;
             BOOLEAN isFileOrDirectory = FALSE;
@@ -889,7 +891,7 @@ VOID PhpUpdateHandleGeneral(
     {
         NTSTATUS status;
         HANDLE processHandle;
-        HANDLE sectionHandle;
+        HANDLE sectionHandle = NULL;
 
         if (NT_SUCCESS(status = PhOpenProcess(
             &processHandle,
@@ -923,7 +925,7 @@ VOID PhpUpdateHandleGeneral(
             NtClose(processHandle);
         }
 
-        if (NT_SUCCESS(status))
+        if (NT_SUCCESS(status) && sectionHandle)
         {
             SECTION_BASIC_INFORMATION basicInfo;
             PWSTR sectionType = L"Unknown";
@@ -965,7 +967,7 @@ VOID PhpUpdateHandleGeneral(
     {
         NTSTATUS status;
         HANDLE processHandle;
-        HANDLE mutantHandle;
+        HANDLE mutantHandle = NULL;
 
         if (NT_SUCCESS(status = PhOpenProcess(
             &processHandle,
@@ -985,7 +987,7 @@ VOID PhpUpdateHandleGeneral(
             NtClose(processHandle);
         }
 
-        if (NT_SUCCESS(status))
+        if (NT_SUCCESS(status) && mutantHandle)
         {
             MUTANT_BASIC_INFORMATION basicInfo;
             MUTANT_OWNER_INFORMATION ownerInfo;
@@ -1015,7 +1017,7 @@ VOID PhpUpdateHandleGeneral(
     {
         NTSTATUS status;
         HANDLE processHandle;
-        HANDLE dupHandle;
+        HANDLE dupHandle = NULL;
 
         if (NT_SUCCESS(status = PhOpenProcess(
             &processHandle,
@@ -1036,7 +1038,7 @@ VOID PhpUpdateHandleGeneral(
             NtClose(processHandle);
         }
 
-        if (NT_SUCCESS(status))
+        if (NT_SUCCESS(status) && dupHandle)
         {
             NTSTATUS exitStatus = STATUS_PENDING;
             PPH_STRING fileName;
@@ -1099,7 +1101,7 @@ VOID PhpUpdateHandleGeneral(
     {
         NTSTATUS status;
         HANDLE processHandle;
-        HANDLE dupHandle;
+        HANDLE dupHandle = NULL;
 
         if (NT_SUCCESS(status = PhOpenProcess(
             &processHandle,
@@ -1120,7 +1122,7 @@ VOID PhpUpdateHandleGeneral(
             NtClose(processHandle);
         }
 
-        if (NT_SUCCESS(status))
+        if (NT_SUCCESS(status) && dupHandle)
         {
             BOOLEAN isTerminated = FALSE;
             THREAD_BASIC_INFORMATION basicInfo;

@@ -96,8 +96,13 @@
 #define PHPRTLC_CRITICAL 83
 #define PHPRTLC_PIDHEX 84
 #define PHPRTLC_CPUCORECYCLES 85
+#define PHPRTLC_CET 86
+#define PHPRTLC_IMAGE_COHERENCY 87
+#define PHPRTLC_ERRORMODE 88
+#define PHPRTLC_CODEPAGE 89
+#define PHPRTLC_TIMELINE 90
 
-#define PHPRTLC_MAXIMUM 86
+#define PHPRTLC_MAXIMUM 91
 #define PHPRTLC_IOGROUP_COUNT 9
 
 #define PHPN_WSCOUNTERS 0x1
@@ -115,6 +120,8 @@
 #define PHPN_DESKTOPINFO 0x1000
 #define PHPN_USERNAME 0x2000
 #define PHPN_CRITICAL 0x4000
+#define PHPN_ERRORMODE 0x8000
+#define PHPN_CODEPAGE 0x10000
 
 // begin_phapppub
 typedef struct _PH_PROCESS_NODE
@@ -178,6 +185,8 @@ typedef struct _PH_PROCESS_NODE
     LARGE_INTEGER FileEndOfFile;
     // Critical
     BOOLEAN BreakOnTerminationEnabled;
+    // Code page
+    USHORT CodePage;
 
     PPH_STRING TooltipText;
     ULONG64 TooltipTextValidToTickCount;
@@ -231,6 +240,10 @@ typedef struct _PH_PROCESS_NODE
     PPH_STRING DesktopInfoText;
     WCHAR PidHexText[PH_PTR_STR_LEN_1];
     WCHAR CpuCoreUsageText[PH_PTR_STR_LEN_1 + 3];
+    WCHAR ImageCoherencyText[PH_PTR_STR_LEN_1 + 3];
+    PPH_STRING ImageCoherencyStatusText;
+    PPH_STRING ErrorModeText;
+    PPH_STRING CodePageText;
 
     // Graph buffers
     PH_GRAPH_BUFFERS CpuGraphBuffers;

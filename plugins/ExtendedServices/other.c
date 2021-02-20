@@ -3,6 +3,7 @@
  *   other information
  *
  * Copyright (C) 2010-2015 wj32
+ * Copyright (C) 2020 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -55,7 +56,8 @@ static PH_KEY_VALUE_PAIR EspServiceLaunchProtectedPairs[] =
     SIP(L"None", SERVICE_LAUNCH_PROTECTED_NONE),
     SIP(L"Full (Windows)", SERVICE_LAUNCH_PROTECTED_WINDOWS),
     SIP(L"Light (Windows)", SERVICE_LAUNCH_PROTECTED_WINDOWS_LIGHT),
-    SIP(L"Light (Antimalware)", SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT)
+    SIP(L"Light (Antimalware)", SERVICE_LAUNCH_PROTECTED_ANTIMALWARE_LIGHT),
+    SIP(L"Light (StoreApp)", 0x4),
 };
 
 static WCHAR *EspServiceSidTypeStrings[3] = { L"None", L"Restricted", L"Unrestricted" };
@@ -169,16 +171,14 @@ NTSTATUS EspLoadOtherInfo(
         PPH_STRING privilegeString;
         PPH_STRING displayName;
 
-        privilege = requiredPrivilegesInfo->pmszRequiredPrivileges;
-
-        if (privilege)
+        if (requiredPrivilegesInfo->pmszRequiredPrivileges)
         {
-            while (TRUE)
+            for (privilege = requiredPrivilegesInfo->pmszRequiredPrivileges; *privilege; privilege += PhCountStringZ(privilege) + 1)
             {
                 privilegeLength = (ULONG)PhCountStringZ(privilege);
 
                 if (privilegeLength == 0)
-                    break;
+                    continue;
 
                 privilegeString = PhCreateStringEx(privilege, privilegeLength * sizeof(WCHAR));
                 PhAddItemList(Context->PrivilegeList, privilegeString);
@@ -192,12 +192,10 @@ NTSTATUS EspLoadOtherInfo(
                     PhSetListViewSubItem(Context->PrivilegesLv, lvItemIndex, 1, displayName->Buffer);
                     PhDereferenceObject(displayName);
                 }
-
-                privilege += privilegeLength + 1;
             }
-        }
 
-        ExtendedListView_SortItems(Context->PrivilegesLv);
+            ExtendedListView_SortItems(Context->PrivilegesLv);
+        }
 
         PhFree(requiredPrivilegesInfo);
         Context->RequiredPrivilegesValid = TRUE;
@@ -365,7 +363,7 @@ INT_PTR CALLBACK EspServiceOtherDlgProc(
             PhAddComboBoxStrings(GetDlgItem(hwndDlg, IDC_PROTECTION),
                 EspServiceLaunchProtectedStrings, sizeof(EspServiceLaunchProtectedStrings) / sizeof(PWSTR));
 
-            if (WindowsVersion < WINDOWS_8_1)
+            if (PhWindowsVersion < WINDOWS_8_1)
                 EnableWindow(GetDlgItem(hwndDlg, IDC_PROTECTION), FALSE);
 
             PhSetDialogItemText(hwndDlg, IDC_SERVICESID,

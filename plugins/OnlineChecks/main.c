@@ -201,9 +201,9 @@ VOID NTAPI MenuItemCallback(
 
                 if (SUCCEEDED(TaskDialogIndirect(&config, &result, NULL, NULL)) && result == IDYES)
                 {
-                    ProcessHacker_PrepareForEarlyShutdown(PhMainWndHandle);
+                    ProcessHacker_PrepareForEarlyShutdown();
                     PhShellProcessHacker(
-                        PhMainWndHandle,
+                        menuItem->OwnerWindow,
                         L"-v",
                         SW_SHOW,
                         0,
@@ -211,7 +211,7 @@ VOID NTAPI MenuItemCallback(
                         0,
                         NULL
                         );
-                    ProcessHacker_Destroy(PhMainWndHandle);
+                    ProcessHacker_Destroy();
                 }
             }
         }
@@ -298,7 +298,7 @@ VOID NTAPI MainMenuInitializingCallback(
 PPH_EMENU_ITEM CreateSendToMenu(
     _In_ BOOLEAN ProcessesMenu,
     _In_ PPH_EMENU_ITEM Parent,
-    _In_ PPH_STRING FileName
+    _In_opt_ PPH_STRING FileName
     )
 {
     PPH_EMENU_ITEM sendToMenu;

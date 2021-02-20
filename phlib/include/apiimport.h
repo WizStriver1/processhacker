@@ -111,12 +111,24 @@ typedef BOOL (WINAPI* _ConvertSecurityDescriptorToStringSecurityDescriptorW)(
     _Out_opt_ PULONG StringSecurityDescriptorLen
     );
 
+typedef BOOL (WINAPI* _ConvertStringSecurityDescriptorToSecurityDescriptorW)(
+    _In_ LPCWSTR StringSecurityDescriptor,
+    _In_ DWORD StringSDRevision,
+    _Outptr_ PSECURITY_DESCRIPTOR *SecurityDescriptor,
+    _Out_opt_ PULONG SecurityDescriptorSize
+    );
+
 typedef HRESULT (WINAPI* _SHGetFolderPathW)(
     _Reserved_ HWND hwnd,
     _In_ INT csidl,
     _In_opt_ HANDLE hToken,
     _In_ ULONG dwFlags,
     _Out_writes_(MAX_PATH) LPWSTR pszPath
+    );
+
+typedef HRESULT (WINAPI* _SHAutoComplete)(
+    _In_ HWND hwndEdit,
+    _In_ ULONG Flags
     );
 
 typedef ULONG_PTR (WINAPI* _SHGetFileInfoW)(
@@ -185,6 +197,17 @@ typedef BOOL (WINAPI* _DestroyEnvironmentBlock)(
     _In_ PVOID Environment
     );
 
+typedef int (WINAPI* _MessageBoxW)(
+    _In_opt_ HWND hWnd,
+    _In_opt_ LPCWSTR lpText,
+    _In_opt_ LPCWSTR lpCaption,
+    _In_ UINT uType
+    );
+
+typedef BOOL (WINAPI* _MessageBeep)(
+    _In_ UINT uType
+    );
+
 typedef BOOLEAN (WINAPI* _WinStationQueryInformationW)(
     _In_opt_ HANDLE ServerHandle,
     _In_ ULONG SessionId,
@@ -213,12 +236,14 @@ PH_DECLARE_IMPORT(RtlGetAppContainerParent);
 PH_DECLARE_IMPORT(RtlDeriveCapabilitySidsFromName);
 
 PH_DECLARE_IMPORT(ConvertSecurityDescriptorToStringSecurityDescriptorW);
+PH_DECLARE_IMPORT(ConvertStringSecurityDescriptorToSecurityDescriptorW);
 
 PH_DECLARE_IMPORT(DnsQuery_W);
 PH_DECLARE_IMPORT(DnsExtractRecordsFromMessage_W);
 PH_DECLARE_IMPORT(DnsWriteQuestionToBuffer_W);
 PH_DECLARE_IMPORT(DnsFree);
 
+PH_DECLARE_IMPORT(SHAutoComplete);
 PH_DECLARE_IMPORT(SHGetFolderPathW);
 PH_DECLARE_IMPORT(SHGetFileInfoW);
 
@@ -231,6 +256,8 @@ PH_DECLARE_IMPORT(DestroyEnvironmentBlock);
 PH_DECLARE_IMPORT(GetAppContainerRegistryLocation);
 PH_DECLARE_IMPORT(GetAppContainerFolderPath);
 
+PH_DECLARE_IMPORT(MessageBoxW);
+PH_DECLARE_IMPORT(MessageBeep);
 PH_DECLARE_IMPORT(WinStationQueryInformationW);
 
 #endif

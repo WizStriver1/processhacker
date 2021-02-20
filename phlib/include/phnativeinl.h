@@ -1133,70 +1133,6 @@ PhSetThreadAffinityMask(
         );
 }
 
-FORCEINLINE
-NTSTATUS
-PhGetJobBasicAndIoAccounting(
-    _In_ HANDLE JobHandle,
-    _Out_ PJOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION BasicAndIoAccounting
-    )
-{
-    return NtQueryInformationJobObject(
-        JobHandle,
-        JobObjectBasicAndIoAccountingInformation,
-        BasicAndIoAccounting,
-        sizeof(JOBOBJECT_BASIC_AND_IO_ACCOUNTING_INFORMATION),
-        NULL
-        );
-}
-
-FORCEINLINE
-NTSTATUS
-PhGetJobBasicLimits(
-    _In_ HANDLE JobHandle,
-    _Out_ PJOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimits
-    )
-{
-    return NtQueryInformationJobObject(
-        JobHandle,
-        JobObjectBasicLimitInformation,
-        BasicLimits,
-        sizeof(JOBOBJECT_BASIC_LIMIT_INFORMATION),
-        NULL
-        );
-}
-
-FORCEINLINE
-NTSTATUS
-PhGetJobExtendedLimits(
-    _In_ HANDLE JobHandle,
-    _Out_ PJOBOBJECT_EXTENDED_LIMIT_INFORMATION ExtendedLimits
-    )
-{
-    return NtQueryInformationJobObject(
-        JobHandle,
-        JobObjectExtendedLimitInformation,
-        ExtendedLimits,
-        sizeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION),
-        NULL
-        );
-}
-
-FORCEINLINE
-NTSTATUS
-PhGetJobBasicUiRestrictions(
-    _In_ HANDLE JobHandle,
-    _Out_ PJOBOBJECT_BASIC_UI_RESTRICTIONS BasicUiRestrictions
-    )
-{
-    return NtQueryInformationJobObject(
-        JobHandle,
-        JobObjectBasicUIRestrictions,
-        BasicUiRestrictions,
-        sizeof(JOBOBJECT_BASIC_UI_RESTRICTIONS),
-        NULL
-        );
-}
-
 /**
  * Gets a token's session ID.
  *
@@ -1755,6 +1691,34 @@ PhSetDebugKillProcessOnExit(
         sizeof(ULONG),
         NULL
         );
+}
+
+FORCEINLINE
+NTSTATUS
+PhGetProcessIsCetEnabled(
+    _In_ HANDLE ProcessHandle,
+    _Out_ PBOOLEAN IsCetEnabled
+    )
+{
+    NTSTATUS status;
+    PROCESS_MITIGATION_POLICY_INFORMATION policyInfo;
+
+    policyInfo.Policy = ProcessUserShadowStackPolicy;
+
+    status = NtQueryInformationProcess(
+        ProcessHandle,
+        ProcessMitigationPolicy,
+        &policyInfo,
+        sizeof(PROCESS_MITIGATION_POLICY_INFORMATION),
+        NULL
+        );
+
+    if (NT_SUCCESS(status))
+    {
+        *IsCetEnabled = !!policyInfo.UserShadowStackPolicy.EnableUserShadowStack;
+    }
+
+    return status;
 }
 
 #endif

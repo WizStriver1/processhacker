@@ -25,7 +25,7 @@
 #ifndef PV_PRP_H
 #define PV_PRP_H
 
-#define PV_PROPCONTEXT_MAXPAGES 20
+#define PV_PROPCONTEXT_MAXPAGES 40
 
 typedef struct _PV_PROPSHEETCONTEXT
 {
@@ -113,7 +113,7 @@ FORCEINLINE BOOLEAN PvPropPageDlgProcHeader(
         PhSetWindowContext(hwndDlg, ULONG_MAX, (PVOID)lParam);
     }
 
-    propSheetPage = PhGetWindowContext(hwndDlg, ULONG_MAX);
+    propSheetPage = (LPPROPSHEETPAGE)PhGetWindowContext(hwndDlg, ULONG_MAX);
 
     if (!propSheetPage)
         return FALSE;

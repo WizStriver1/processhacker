@@ -110,29 +110,29 @@ VOID PhUiAnalyzeWaitThread(
 {
     NTSTATUS status;
     HANDLE threadHandle;
-#ifdef _WIN64
     HANDLE processHandle;
+#ifdef _WIN64
     BOOLEAN isWow64;
 #endif
     CLIENT_ID clientId;
     ANALYZE_WAIT_CONTEXT context;
 
-#ifdef _WIN64
-    // Determine if the process is WOW64. If not, we use the passive method.
-
-    if (!NT_SUCCESS(status = PhOpenProcess(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION, ProcessId)))
+    if (!NT_SUCCESS(status = PhOpenProcess(&processHandle, PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, ProcessId)))
     {
-        PhShowStatus(hWnd, L"Unable to open the process", status, 0);
+        PhShowStatus(hWnd, L"Unable to open the process.", status, 0);
         return;
     }
+
+#ifdef _WIN64
+    // Determine if the process is WOW64. If not, we use the passive method.
 
     if (!NT_SUCCESS(status = PhGetProcessIsWow64(processHandle, &isWow64)) || !isWow64)
     {
         PhpAnalyzeWaitPassive(hWnd, ProcessId, ThreadId);
+
+        NtClose(processHandle);
         return;
     }
-
-    NtClose(processHandle);
 #endif
 
     if (!NT_SUCCESS(status = PhOpenThread(
@@ -142,14 +142,14 @@ VOID PhUiAnalyzeWaitThread(
         )))
     {
         PhShowStatus(hWnd, L"Unable to open the thread.", status, 0);
+        NtClose(processHandle);
         return;
     }
 
     memset(&context, 0, sizeof(ANALYZE_WAIT_CONTEXT));
     context.ProcessId = ProcessId;
     context.ThreadId = ThreadId;
-
-    context.ProcessHandle = SymbolProvider->ProcessHandle;
+    context.ProcessHandle = processHandle;
     context.SymbolProvider = SymbolProvider;
     PhInitializeStringBuilder(&context.StringBuilder, 100);
 
@@ -158,7 +158,7 @@ VOID PhUiAnalyzeWaitThread(
 
     PhWalkThreadStack(
         threadHandle,
-        SymbolProvider->ProcessHandle,
+        processHandle,
         &clientId,
         SymbolProvider,
         PH_WALK_I386_STACK,
@@ -166,16 +166,17 @@ VOID PhUiAnalyzeWaitThread(
         &context
         );
     NtClose(threadHandle);
+    NtClose(processHandle);
 
     PhpAnalyzeWaitFallbacks(&context);
 
     if (context.Found)
     {
-        PhShowInformationDialog(hWnd, context.StringBuilder.String->Buffer, 0);
+        PhShowInformationDialog(hWnd, PhFinalStringBuilderString(&context.StringBuilder)->Buffer, 0);
     }
     else
     {
-        PhShowInformation2(hWnd, L"The thread does not appear to be waiting.", L"");
+        PhShowInformation2(hWnd, L"The thread does not appear to be waiting.", L"%s", L"");
     }
 
     PhDeleteStringBuilder(&context.StringBuilder);
@@ -1013,6 +1014,7 @@ PPH_STRING PhpaGetAlpcInformation(
     _In_ HANDLE ThreadId
     )
 {
+#if (PHNT_VERSION >= PHNT_WIN7)
     NTSTATUS status;
     PPH_STRING string = NULL;
     HANDLE threadHandle;
@@ -1053,4 +1055,7 @@ PPH_STRING PhpaGetAlpcInformation(
     NtClose(threadHandle);
 
     return string;
+#else
+    return NULL;
+#endif
 }

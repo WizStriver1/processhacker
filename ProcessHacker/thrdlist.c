@@ -525,8 +525,40 @@ END_SORT_FUNCTION
 
 BEGIN_SORT_FUNCTION(State)
 {
-    sortResult = uintcmp(threadItem1->WaitReason, threadItem2->WaitReason);
-    //sortResult = uintcmp(threadItem1->State, threadItem2->State);
+    ULONG threadState1 = ULONG_MAX;
+    ULONG threadState2 = ULONG_MAX;
+
+    if (threadItem1->State != Waiting)
+    {
+        if ((ULONG)threadItem1->State < MaximumThreadState)
+            threadState1 = (ULONG)threadItem1->State;
+        else
+            threadState1 = (ULONG)MaximumThreadState;
+    }
+    else
+    {
+        if ((ULONG)threadItem1->WaitReason < MaximumWaitReason)
+            threadState1 = (ULONG)threadItem1->WaitReason;
+        else
+            threadState1 = (ULONG)MaximumWaitReason;
+    }
+
+    if (threadItem2->State != Waiting)
+    {
+        if ((ULONG)threadItem2->State < MaximumThreadState)
+            threadState2 = (ULONG)threadItem2->State;
+        else
+            threadState2 = (ULONG)MaximumThreadState;
+    }
+    else
+    {
+        if ((ULONG)threadItem2->WaitReason < MaximumWaitReason)
+            threadState2 = (ULONG)threadItem2->WaitReason;
+        else
+            threadState2 = (ULONG)MaximumWaitReason;
+    }
+
+    sortResult = uintcmp(threadState1, threadState2);
 }
 END_SORT_FUNCTION
 
@@ -1056,6 +1088,9 @@ BOOLEAN NTAPI PhpThreadTreeNewCallback(
     case TreeNewKeyDown:
         {
             PPH_TREENEW_KEY_EVENT keyEvent = Parameter1;
+
+            if (!keyEvent)
+                break;
 
             switch (keyEvent->VirtualKey)
             {

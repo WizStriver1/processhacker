@@ -64,10 +64,6 @@ typedef struct _THREAD_TREE_CONTEXT
     PCLR_PROCESS_SUPPORT Support;
 } THREAD_TREE_CONTEXT, *PTHREAD_TREE_CONTEXT;
 
-static PPH_HASHTABLE ContextHashtable;
-static PH_QUEUED_LOCK ContextHashtableLock = PH_QUEUED_LOCK_INIT;
-static PH_INITONCE ContextHashtableInitOnce = PH_INITONCE_INIT;
-
 VOID InitializeTreeNewObjectExtensions(
     VOID
     )
@@ -152,7 +148,7 @@ static VOID ThreadRemovedHandler(
 {
     PPH_THREAD_ITEM threadItem = Parameter;
     PDN_THREAD_ITEM dnThread;
-    PTHREAD_TREE_CONTEXT context = Context;
+    //PTHREAD_TREE_CONTEXT context = Context;
 
     if (!threadItem)
         return;
@@ -177,6 +173,13 @@ VOID NTAPI ThreadsContextCreateCallback(
     memset(context, 0, sizeof(THREAD_TREE_CONTEXT));
     context->Type = THREAD_TREE_CONTEXT_TYPE;
     context->ProcessId = threadsContext->Provider->ProcessId;
+
+#if _WIN64
+    if (threadsContext->Provider->ProcessHandle)
+    {
+        PhGetProcessIsWow64(threadsContext->Provider->ProcessHandle, &context->IsWow64);
+    }
+#endif
 
     PhRegisterCallback(
         &threadsContext->Provider->ThreadAddedEvent,
@@ -232,21 +235,29 @@ VOID ThreadTreeNewInitializing(
     PPH_THREADS_CONTEXT threadsContext;
     PTHREAD_TREE_CONTEXT context;
     BOOLEAN isDotNet;
-
+    ULONG flags = 0;
+  
     threadsContext = info->SystemContext;
     context = PhPluginGetObjectExtension(PluginInstance, threadsContext, EmThreadsContextType);
 
-    if (NT_SUCCESS(PhGetProcessIsDotNet(threadsContext->Provider->ProcessId, &isDotNet)) && isDotNet)
+    PhGetProcessIsDotNetEx(
+        threadsContext->Provider->ProcessId,
+        threadsContext->Provider->ProcessHandle,
+#ifdef _WIN64
+        PH_CLR_USE_SECTION_CHECK | PH_CLR_NO_WOW64_CHECK | (context->IsWow64 ? PH_CLR_KNOWN_IS_WOW64 : 0),
+#else
+        PH_CLR_USE_SECTION_CHECK,
+#endif
+        &isDotNet,
+        NULL
+        );
+
+    if (!isDotNet && (flags & PH_CLR_JIT_PRESENT))
+        isDotNet = TRUE;
+
+    if (isDotNet)
     {
 #if _WIN64
-        HANDLE processHandle;
-
-        if (NT_SUCCESS(PhOpenProcess(&processHandle, PROCESS_QUERY_LIMITED_INFORMATION, threadsContext->Provider->ProcessId)))
-        {
-            PhGetProcessIsWow64(processHandle, &context->IsWow64);
-            NtClose(processHandle);
-        }
-
         if (context->IsWow64)
         {
             context->ConnectedToPhSvc = PhUiConnectToPhSvcEx(NULL, Wow64PhSvcMode, FALSE);
@@ -256,16 +267,14 @@ VOID ThreadTreeNewInitializing(
         {
             PCLR_PROCESS_SUPPORT support;
 
-            support = CreateClrProcessSupport(threadsContext->Provider->ProcessId);
-
-            if (!support)
-                return;
-
-            context->Support = support;
+            if (support = CreateClrProcessSupport(context->ProcessId))
+            {
+                context->Support = support;
+            }
         }
-
-        AddTreeNewColumn(info, context, DNTHTNC_APPDOMAIN, TRUE, L"AppDomain", 120, PH_ALIGN_LEFT, 0, FALSE, ThreadTreeNewSortFunction);
     }
+
+    AddTreeNewColumn(info, context, DNTHTNC_APPDOMAIN, FALSE, L"AppDomain", 120, PH_ALIGN_LEFT, 0, FALSE, ThreadTreeNewSortFunction);
 }
 
 VOID ThreadTreeNewUninitializing(

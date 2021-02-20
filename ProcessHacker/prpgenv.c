@@ -3,7 +3,7 @@
  *   Process properties: Environment page
  *
  * Copyright (C) 2009-2016 wj32
- * Copyright (C) 2018-2020 dmex
+ * Copyright (C) 2018-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -143,7 +143,7 @@ VOID PhpClearEnvironmentItems(
     _Inout_ PPH_ENVIRONMENT_CONTEXT Context
     )
 {
-    ULONG i;
+    SIZE_T i;
     PPH_ENVIRONMENT_ITEM item;
 
     for (i = 0; i < Context->Items.Count; i++)
@@ -176,7 +176,6 @@ VOID PhpSetEnvironmentListStatusMessage(
 }
 
 VOID PhpRefreshEnvironmentList(
-    _In_ HWND hwndDlg,
     _Inout_ PPH_ENVIRONMENT_CONTEXT Context,
     _In_ PPH_PROCESS_ITEM ProcessItem
     )
@@ -191,27 +190,14 @@ VOID PhpRefreshEnvironmentList(
     PPHP_PROCESS_ENVIRONMENT_TREENODE processRootNode;
     PPHP_PROCESS_ENVIRONMENT_TREENODE userRootNode;
     PPHP_PROCESS_ENVIRONMENT_TREENODE systemRootNode;
-    ULONG i;
+    PVOID systemDefaultEnvironment = NULL;
+    PVOID userDefaultEnvironment = NULL;
+    SIZE_T i;
 
     PhpClearEnvironmentTree(Context);
     processRootNode = PhpAddEnvironmentNode(Context, NULL, PROCESS_ENVIRONMENT_TREENODE_TYPE_GROUP, PhaCreateString(L"Process"), NULL);
     userRootNode = PhpAddEnvironmentNode(Context, NULL, PROCESS_ENVIRONMENT_TREENODE_TYPE_GROUP, PhaCreateString(L"User"), NULL);
     systemRootNode = PhpAddEnvironmentNode(Context, NULL, PROCESS_ENVIRONMENT_TREENODE_TYPE_GROUP, PhaCreateString(L"System"), NULL);
-
-    if (DestroyEnvironmentBlock_Import())
-    {
-        if (Context->SystemDefaultEnvironment)
-        {
-            DestroyEnvironmentBlock_Import()(Context->SystemDefaultEnvironment);
-            Context->SystemDefaultEnvironment = NULL;
-        }
-
-        if (Context->UserDefaultEnvironment)
-        {
-            DestroyEnvironmentBlock_Import()(Context->UserDefaultEnvironment);
-            Context->UserDefaultEnvironment = NULL;
-        }
-    }
 
     status = PhOpenProcess(
         &processHandle,
@@ -232,7 +218,7 @@ VOID PhpRefreshEnvironmentList(
 
         if (CreateEnvironmentBlock_Import())
         {
-            CreateEnvironmentBlock_Import()(&Context->SystemDefaultEnvironment, NULL, FALSE);
+            CreateEnvironmentBlock_Import()(&systemDefaultEnvironment, NULL, FALSE);
 
             if (NT_SUCCESS(PhOpenProcessToken(
                 processHandle,
@@ -240,7 +226,7 @@ VOID PhpRefreshEnvironmentList(
                 &tokenHandle
                 )))
             {
-                CreateEnvironmentBlock_Import()(&Context->UserDefaultEnvironment, tokenHandle, FALSE);
+                CreateEnvironmentBlock_Import()(&userDefaultEnvironment, tokenHandle, FALSE);
                 NtClose(tokenHandle);
             }
         }
@@ -287,8 +273,8 @@ VOID PhpRefreshEnvironmentList(
         if (!item->Name)
             continue;
 
-        if (Context->SystemDefaultEnvironment && PhQueryEnvironmentVariable(
-            Context->SystemDefaultEnvironment,
+        if (systemDefaultEnvironment && PhQueryEnvironmentVariable(
+            systemDefaultEnvironment,
             &item->Name->sr,
             NULL
             ) == STATUS_BUFFER_TOO_SMALL)
@@ -297,7 +283,7 @@ VOID PhpRefreshEnvironmentList(
             parentNode = systemRootNode;
 
             if (NT_SUCCESS(PhQueryEnvironmentVariable(
-                Context->SystemDefaultEnvironment,
+                systemDefaultEnvironment,
                 &item->Name->sr,
                 &variableValue
                 )))
@@ -311,8 +297,8 @@ VOID PhpRefreshEnvironmentList(
                 PhDereferenceObject(variableValue);
             }
         }
-        else if (Context->UserDefaultEnvironment && PhQueryEnvironmentVariable(
-            Context->UserDefaultEnvironment,
+        else if (userDefaultEnvironment && PhQueryEnvironmentVariable(
+            userDefaultEnvironment,
             &item->Name->sr,
             NULL
             ) == STATUS_BUFFER_TOO_SMALL)
@@ -321,7 +307,7 @@ VOID PhpRefreshEnvironmentList(
             parentNode = userRootNode;
 
             if (NT_SUCCESS(PhQueryEnvironmentVariable(
-                Context->UserDefaultEnvironment,
+                userDefaultEnvironment,
                 &item->Name->sr,
                 &variableValue
                 )))
@@ -356,6 +342,14 @@ VOID PhpRefreshEnvironmentList(
     }
 
     PhApplyTreeNewFilters(&Context->TreeFilterSupport);
+
+    if (DestroyEnvironmentBlock_Import())
+    {
+        if (systemDefaultEnvironment)
+            DestroyEnvironmentBlock_Import()(systemDefaultEnvironment);
+        if (userDefaultEnvironment)
+            DestroyEnvironmentBlock_Import()(userDefaultEnvironment);
+    }
 }
 
 INT_PTR CALLBACK PhpEditEnvDlgProc(
@@ -622,7 +616,7 @@ VOID PhpShowEnvironmentNodeContextMenu(
                         &refresh
                         ) == IDOK && refresh)
                     {
-                        PhpRefreshEnvironmentList(Context->WindowHandle, Context, Context->ProcessItem);
+                        PhpRefreshEnvironmentList(Context, Context->ProcessItem);
                     }
                 }
                 break;
@@ -661,7 +655,7 @@ VOID PhpShowEnvironmentNodeContextMenu(
                             );
                         NtClose(processHandle);
 
-                        PhpRefreshEnvironmentList(Context->WindowHandle, Context, Context->ProcessItem);
+                        PhpRefreshEnvironmentList(Context, Context->ProcessItem);
 
                         if (status == STATUS_TIMEOUT)
                         {
@@ -1182,7 +1176,7 @@ BOOLEAN NTAPI PhpEnvironmentTreeNewCallback(
 
 VOID PhpClearEnvironmentTree(
     _In_ PPH_ENVIRONMENT_CONTEXT Context
-)
+    )
 {
     ULONG i;
 
@@ -1366,7 +1360,7 @@ INT_PTR CALLBACK PhpProcessEnvironmentDlgProc(
             TreeNew_SetEmptyText(context->TreeNewHandle, &context->StatusMessage->sr, 0);
             PhLoadSettingsEnvironmentList(context);
 
-            PhpRefreshEnvironmentList(hwndDlg, context, processItem);
+            PhpRefreshEnvironmentList(context, processItem);
 
             PhInitializeWindowTheme(hwndDlg, PhEnableThemeSupport);
         }
@@ -1382,14 +1376,6 @@ INT_PTR CALLBACK PhpProcessEnvironmentDlgProc(
             PhpClearEnvironmentItems(context);
             PhDeleteArray(&context->Items);
             PhClearReference(&context->StatusMessage);
-
-            if (DestroyEnvironmentBlock_Import())
-            {
-                if (context->SystemDefaultEnvironment)
-                    DestroyEnvironmentBlock_Import()(context->SystemDefaultEnvironment);
-                if (context->UserDefaultEnvironment)
-                    DestroyEnvironmentBlock_Import()(context->UserDefaultEnvironment);
-            }
 
             PhFree(context);
         }
@@ -1509,7 +1495,7 @@ INT_PTR CALLBACK PhpProcessEnvironmentDlgProc(
 
                             if (PhpShowEditEnvDialog(hwndDlg, processItem, L"", NULL, &refresh) == IDOK && refresh)
                             {
-                                PhpRefreshEnvironmentList(hwndDlg, context, processItem);
+                                PhpRefreshEnvironmentList(context, processItem);
                             }
                         }
                         else
@@ -1525,7 +1511,7 @@ INT_PTR CALLBACK PhpProcessEnvironmentDlgProc(
                 break;
             case IDC_REFRESH:
                 {
-                    PhpRefreshEnvironmentList(hwndDlg, context, processItem);
+                    PhpRefreshEnvironmentList(context, processItem);
                 }
                 break;
             case WM_PH_SET_LIST_VIEW_SETTINGS: // HACK
@@ -1544,7 +1530,7 @@ INT_PTR CALLBACK PhpProcessEnvironmentDlgProc(
                         &refresh
                         ) == IDOK && refresh)
                     {
-                        PhpRefreshEnvironmentList(hwndDlg, context, context->ProcessItem);
+                        PhpRefreshEnvironmentList(context, context->ProcessItem);
                     }
                 }
                 break;
@@ -1558,7 +1544,7 @@ INT_PTR CALLBACK PhpProcessEnvironmentDlgProc(
             switch (header->code)
             {
             case PSN_QUERYINITIALFOCUS:
-                SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, (LPARAM)GetDlgItem(hwndDlg, IDC_REFRESH));
+                SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, (LPARAM)context->TreeNewHandle);
                 return TRUE;
             }
         }

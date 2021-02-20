@@ -107,7 +107,7 @@ NTSTATUS KphConnect2Ex(
 {
     NTSTATUS status;
     SC_HANDLE scmHandle;
-    SC_HANDLE serviceHandle;
+    SC_HANDLE serviceHandle = NULL;
     BOOLEAN started = FALSE;
     BOOLEAN created = FALSE;
 
@@ -703,7 +703,7 @@ NTSTATUS KphTerminateProcess(
     // Check if we're trying to terminate the current process, because kernel-mode can't do it.
     if (status == STATUS_CANT_TERMINATE_SELF)
     {
-        RtlExitUserProcess(ExitStatus);
+        PhExitApplication(ExitStatus);
     }
 
     return status;

@@ -130,14 +130,7 @@ INT WINAPI wWinMain(
 
     if (PhStartupParameters.RunAsServiceMode)
     {
-        RtlExitUserProcess(PhRunAsServiceStart(PhStartupParameters.RunAsServiceMode));
-    }
-
-    if (PhStartupParameters.CommandMode &&
-        PhStartupParameters.CommandType &&
-        PhStartupParameters.CommandAction)
-    {
-        RtlExitUserProcess(PhCommandModeStart());
+        PhExitApplication(PhRunAsServiceStart(PhStartupParameters.RunAsServiceMode));
     }
 
     PhSettingsInitialization();
@@ -146,7 +139,6 @@ INT WINAPI wWinMain(
     if (PhGetIntegerSetting(L"AllowOnlyOneInstance") &&
         !PhStartupParameters.NewInstance &&
         !PhStartupParameters.ShowOptions &&
-        !PhStartupParameters.CommandMode &&
         !PhStartupParameters.PhSvc)
     {
         PhActivatePreviousInstance();
@@ -155,25 +147,22 @@ INT WINAPI wWinMain(
     if (PhGetIntegerSetting(L"EnableStartAsAdmin") &&
         !PhStartupParameters.NewInstance &&
         !PhStartupParameters.ShowOptions &&
-        !PhStartupParameters.CommandMode &&
         !PhStartupParameters.PhSvc)
     {
         if (!PhGetOwnTokenAttributes().Elevated)
         {
-            AllowSetForegroundWindow(ASFW_ANY); // TODO: This rarely works. (dmex)
+            AllowSetForegroundWindow(ASFW_ANY);
 
             if (SUCCEEDED(PhRunAsAdminTask(L"ProcessHackerTaskAdmin")))
             {
-                PhActivatePreviousInstance(); // TODO: This rarely works. (dmex)
-
-                RtlExitUserProcess(STATUS_SUCCESS);
+                PhActivatePreviousInstance();
+                PhExitApplication(STATUS_SUCCESS);
             }
         }
     }
 
     if (PhGetIntegerSetting(L"EnableKph") &&
         !PhStartupParameters.NoKph &&
-        !PhStartupParameters.CommandMode &&
         !PhIsExecutingInWow64()
         )
     {
@@ -204,7 +193,7 @@ INT WINAPI wWinMain(
     if (PhStartupParameters.ShowOptions)
     {
         PhShowOptionsDialog(PhStartupParameters.WindowHandle);
-        RtlExitUserProcess(STATUS_SUCCESS);
+        PhExitApplication(STATUS_SUCCESS);
     }
 
     if (PhPluginsEnabled && !PhStartupParameters.NoPlugins)
@@ -213,12 +202,30 @@ INT WINAPI wWinMain(
     }
 
 #ifndef DEBUG
-    if (WindowsVersion >= WINDOWS_10)
+    BOOLEAN PhpIsExploitProtectionEnabled(VOID); // Forwarded from options.c (dmex)
+    // Starting with Win10 20H1 processes with uiAccess=true override the ProcessExtensionPointDisablePolicy
+    // blocking hook DLL injection and inject the window hook anyway. This override doesn't check if the process has also enabled 
+    // the MicrosoftSignedOnly policy causing an infinite loop of APC messages and hook DLL loading/unloading
+    // inside user32!_ClientLoadLibrary while calling the GetMessageW API for the window message loop.
+    // ...
+    // 1) GetMessageW processes the APC message for loading the window hook DLL with user32!_ClientLoadLibrary.
+    // 2) user32!_ClientLoadLibrary calls LoadLibraryEx with the DLL path.
+    // 3) LoadLibraryEx returns an error loading the window hook DLL because we enabled MicrosoftSignedOnly.
+    // 4) SetWindowsHookEx ignores the result and re-queues the APC message from step 1.
+    // ...
+    // Mouse/keyboard/window messages passing through GetMessageW generate large volumes of calls to LoadLibraryEx
+    // making the application unresponsive as each message processes the APC message and loads/unloads the hook DLL...
+    // So don't use MicrosoftSignedOnly on versions of Windows where Process Hacker becomes unresponsive
+    // because a third party application called SetWindowsHookEx on the machine. (dmex)
+    if (
+        WindowsVersion >= WINDOWS_10 &&
+        PhpIsExploitProtectionEnabled()
+        //WindowsVersion != WINDOWS_10_20H1 &&
+        //WindowsVersion != WINDOWS_10_20H2
+        )
     {
         PROCESS_MITIGATION_POLICY_INFORMATION policyInfo;
 
-        // Note: The PhInitializeMitigationPolicy function enables the other mitigation policies.
-        // However, we can only enable the ProcessSignaturePolicy after loading plugins.
         policyInfo.Policy = ProcessSignaturePolicy;
         policyInfo.SignaturePolicy.Flags = 0;
         policyInfo.SignaturePolicy.MicrosoftSignedOnly = TRUE;
@@ -235,7 +242,7 @@ INT WINAPI wWinMain(
         PostMessage(NULL, WM_NULL, 0, 0);
         GetMessage(&message, NULL, 0, 0);
 
-        RtlExitUserProcess(PhSvcMain(NULL, NULL));
+        PhExitApplication(PhSvcMain(NULL, NULL));
     }
 
 #ifndef DEBUG
@@ -243,11 +250,12 @@ INT WINAPI wWinMain(
     {
         PhShowWarning(
             NULL,
+            L"%s",
             L"You are attempting to run the 32-bit version of Process Hacker on 64-bit Windows. "
             L"Most features will not work correctly.\n\n"
             L"Please run the 64-bit version of Process Hacker instead."
             );
-        RtlExitUserProcess(STATUS_IMAGE_SUBSYSTEM_NOT_PRESENT);
+        PhExitApplication(STATUS_IMAGE_SUBSYSTEM_NOT_PRESENT);
     }
 #endif
 
@@ -266,14 +274,14 @@ INT WINAPI wWinMain(
 
     if (!PhMainWndInitialization(CmdShow))
     {
-        PhShowError(NULL, L"Unable to initialize the main window.");
+        PhShowError(NULL, L"%s", L"Unable to initialize the main window.");
         return 1;
     }
 
     PhDrainAutoPool(&BaseAutoPool);
 
     result = PhMainMessageLoop();
-    RtlExitUserProcess(result);
+    PhExitApplication(result);
 }
 
 LONG PhMainMessageLoop(
@@ -398,10 +406,46 @@ VOID PhUnregisterMessageLoopFilter(
 
     indexOfFilter = PhFindItemList(FilterList, FilterEntry);
 
-    if (indexOfFilter != -1)
+    if (indexOfFilter != ULONG_MAX)
         PhRemoveItemList(FilterList, indexOfFilter);
 
     PhFree(FilterEntry);
+}
+
+typedef struct _PHP_PREVIOUS_MAIN_WINDOW_CONTEXT
+{
+    HANDLE ProcessId;
+    PPH_STRING WindowName;
+    PPH_LIST WindowList;
+} PHP_PREVIOUS_MAIN_WINDOW_CONTEXT, *PPHP_PREVIOUS_MAIN_WINDOW_CONTEXT;
+
+static BOOL CALLBACK PhpPreviousInstanceWindowEnumProc(
+    _In_ HWND WindowHandle,
+    _In_opt_ PVOID Context
+    )
+{
+    PPHP_PREVIOUS_MAIN_WINDOW_CONTEXT context = (PPHP_PREVIOUS_MAIN_WINDOW_CONTEXT)Context;
+    ULONG processId = ULONG_MAX;
+
+    if (!context)
+        return TRUE;
+
+    GetWindowThreadProcessId(WindowHandle, &processId);
+
+    if (UlongToHandle(processId) == context->ProcessId && context->WindowName)
+    {
+        WCHAR className[256];
+
+        if (GetClassName(WindowHandle, className, RTL_NUMBER_OF(className)))
+        {
+            if (PhEqualStringZ(className, PhGetString(context->WindowName), FALSE))
+            {
+                PhAddItemList(context->WindowList, WindowHandle);
+            }
+        }
+    }
+
+    return TRUE;
 }
 
 static BOOLEAN NTAPI PhpPreviousInstancesCallback(
@@ -443,7 +487,6 @@ static BOOLEAN NTAPI PhpPreviousInstancesCallback(
         &objectInfo
         )))
     {
-        HWND hwnd;
         HANDLE processHandle = NULL;
         HANDLE tokenHandle = NULL;
         PTOKEN_USER tokenUser = NULL;
@@ -463,30 +506,33 @@ static BOOLEAN NTAPI PhpPreviousInstancesCallback(
         // Try to locate the window a few times because some users reported that it might not yet have been created. (dmex)
         do
         {
-            if (hwnd = PhGetProcessMainWindowEx(
-                objectInfo.ClientId.UniqueProcess,
-                processHandle,
-                FALSE
-                ))
+            PHP_PREVIOUS_MAIN_WINDOW_CONTEXT context;
+
+            memset(&context, 0, sizeof(PHP_PREVIOUS_MAIN_WINDOW_CONTEXT));
+            context.ProcessId = objectInfo.ClientId.UniqueProcess;
+            context.WindowName = PhGetStringSetting(L"MainWindowClassName");
+            context.WindowList = PhCreateList(2);
+
+            PhEnumWindows(PhpPreviousInstanceWindowEnumProc, &context);
+
+            for (ULONG i = 0; i < context.WindowList->Count; i++)
             {
-                break;
+                HWND windowHandle = context.WindowList->Items[i];
+                ULONG_PTR result;
+
+                SendMessageTimeout(windowHandle, WM_PH_ACTIVATE, PhStartupParameters.SelectPid, 0, SMTO_BLOCK, 5000, &result);
+
+                if (result == PH_ACTIVATE_REPLY)
+                {
+                    SetForegroundWindow(windowHandle);
+                    PhExitApplication(STATUS_SUCCESS);
+                }
             }
 
+            PhDereferenceObject(context.WindowList);
+            PhDereferenceObject(context.WindowName);
             PhDelayExecution(100);
         } while (--attempts != 0);
-
-        if (hwnd)
-        {
-            ULONG_PTR result;
-
-            SendMessageTimeout(hwnd, WM_PH_ACTIVATE, PhStartupParameters.SelectPid, 0, SMTO_BLOCK, 5000, &result);
-
-            if (result == PH_ACTIVATE_REPLY)
-            {
-                SetForegroundWindow(hwnd);
-                RtlExitUserProcess(STATUS_SUCCESS);
-            }
-        }
 
     CleanupExit:
         if (tokenUser) PhFree(tokenUser);
@@ -611,15 +657,67 @@ BOOLEAN PhInitializeRestartPolicy(
 #include <symprv.h>
 #include <minidumpapiset.h>
 
-static ULONG CALLBACK PhpUnhandledExceptionCallback(
+VOID PhpCreateUnhandledExceptionCrashDump(
+    _In_ PEXCEPTION_POINTERS ExceptionInfo
+    )
+{
+    static PH_STRINGREF dumpFilePath = PH_STRINGREF_INIT(L"%USERPROFILE%\\Desktop\\");
+    HANDLE fileHandle;
+    PPH_STRING dumpDirectory;
+    PPH_STRING dumpFileName;
+    WCHAR alphastring[16] = L"";
+
+    dumpDirectory = PhExpandEnvironmentStrings(&dumpFilePath);
+    PhGenerateRandomAlphaString(alphastring, RTL_NUMBER_OF(alphastring));
+
+    dumpFileName = PhConcatStrings(
+        4,
+        PhGetString(dumpDirectory),
+        L"\\ProcessHacker_",
+        alphastring,
+        L"_DumpFile.dmp"
+        );
+
+    if (NT_SUCCESS(PhCreateFileWin32(
+        &fileHandle,
+        dumpFileName->Buffer,
+        FILE_GENERIC_WRITE,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ | FILE_SHARE_DELETE,
+        FILE_OVERWRITE_IF,
+        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
+        )))
+    {
+        MINIDUMP_EXCEPTION_INFORMATION exceptionInfo;
+
+        exceptionInfo.ThreadId = HandleToUlong(NtCurrentThreadId());
+        exceptionInfo.ExceptionPointers = ExceptionInfo;
+        exceptionInfo.ClientPointers = FALSE;
+
+        PhWriteMiniDumpProcess(
+            NtCurrentProcess(),
+            NtCurrentProcessId(),
+            fileHandle,
+            MiniDumpNormal,
+            &exceptionInfo,
+            NULL,
+            NULL
+            );
+
+        NtClose(fileHandle);
+    }
+
+    PhDereferenceObject(dumpFileName);
+    PhDereferenceObject(dumpDirectory);
+}
+
+ULONG CALLBACK PhpUnhandledExceptionCallback(
     _In_ PEXCEPTION_POINTERS ExceptionInfo
     )
 {
     PPH_STRING errorMessage;
     INT result;
     PPH_STRING message;
-    TASKDIALOGCONFIG config = { sizeof(TASKDIALOGCONFIG) };
-    TASKDIALOG_BUTTON buttons[2];
 
     if (NT_NTWIN32(ExceptionInfo->ExceptionRecord->ExceptionCode))
         errorMessage = PhGetStatusMessage(0, WIN32_FROM_NTSTATUS(ExceptionInfo->ExceptionRecord->ExceptionCode));
@@ -627,105 +725,78 @@ static ULONG CALLBACK PhpUnhandledExceptionCallback(
         errorMessage = PhGetStatusMessage(ExceptionInfo->ExceptionRecord->ExceptionCode, 0);
 
     message = PhFormatString(
-        L"Error code: 0x%08X (%s)",
+        L"0x%08X (%s)",
         ExceptionInfo->ExceptionRecord->ExceptionCode,
         PhGetStringOrEmpty(errorMessage)
         );
 
-    config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
-    config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
-    config.pszWindowTitle = PhApplicationName;
-    config.pszMainIcon = TD_ERROR_ICON;
-    config.pszMainInstruction = L"Process Hacker has crashed :(";
-    config.pszContent = message->Buffer;
-
-    buttons[0].nButtonID = IDYES;
-    buttons[0].pszButtonText = L"Minidump";
-    buttons[1].nButtonID = IDRETRY;
-    buttons[1].pszButtonText = L"Restart";
-
-    config.cButtons = RTL_NUMBER_OF(buttons);
-    config.pButtons = buttons;
-    config.nDefaultButton = IDCLOSE;
-
-    if (TaskDialogIndirect(
-        &config,
-        &result,
-        NULL,
-        NULL
-        ) == S_OK)
+    if (TaskDialogIndirect)
     {
-        switch (result)
+        TASKDIALOGCONFIG config = { sizeof(TASKDIALOGCONFIG) };
+        TASKDIALOG_BUTTON buttons[2];
+
+        buttons[0].nButtonID = IDYES;
+        buttons[0].pszButtonText = L"Minidump";
+        buttons[1].nButtonID = IDRETRY;
+        buttons[1].pszButtonText = L"Restart";
+
+        config.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+        config.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+        config.pszWindowTitle = PhApplicationName;
+        config.pszMainIcon = TD_ERROR_ICON;
+        config.pszMainInstruction = L"Process Hacker has crashed :(";
+        config.pszContent = PhGetStringOrEmpty(message);
+        config.cButtons = RTL_NUMBER_OF(buttons);
+        config.pButtons = buttons;
+        config.nDefaultButton = IDCLOSE;
+
+        if (SUCCEEDED(TaskDialogIndirect(&config, &result, NULL, NULL)))
         {
-        case IDRETRY:
+            switch (result)
             {
-                PhShellProcessHacker(
-                    NULL,
-                    NULL,
-                    SW_SHOW,
-                    0,
-                    PH_SHELL_APP_PROPAGATE_PARAMETERS | PH_SHELL_APP_PROPAGATE_PARAMETERS_IGNORE_VISIBILITY,
-                    0,
-                    NULL
-                    );
-            }
-            break;
-        case IDYES:
-            {
-                static PH_STRINGREF dumpFilePath = PH_STRINGREF_INIT(L"%USERPROFILE%\\Desktop\\");
-                HANDLE fileHandle;
-                PPH_STRING dumpDirectory;
-                PPH_STRING dumpFileName;
-                WCHAR alphastring[16] = L"";
-
-                dumpDirectory = PhExpandEnvironmentStrings(&dumpFilePath);
-                PhGenerateRandomAlphaString(alphastring, RTL_NUMBER_OF(alphastring));
-
-                dumpFileName = PhConcatStrings(
-                    4,
-                    PhGetString(dumpDirectory),
-                    L"\\ProcessHacker_",
-                    alphastring,
-                    L"_DumpFile.dmp"
-                    );
-
-                if (NT_SUCCESS(PhCreateFileWin32(
-                    &fileHandle,
-                    dumpFileName->Buffer,
-                    FILE_GENERIC_WRITE,
-                    FILE_ATTRIBUTE_NORMAL,
-                    FILE_SHARE_READ | FILE_SHARE_DELETE,
-                    FILE_OVERWRITE_IF,
-                    FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
-                    )))
+            case IDRETRY:
                 {
-                    MINIDUMP_EXCEPTION_INFORMATION exceptionInfo;
-
-                    exceptionInfo.ThreadId = HandleToUlong(NtCurrentThreadId());
-                    exceptionInfo.ExceptionPointers = ExceptionInfo;
-                    exceptionInfo.ClientPointers = FALSE;
-
-                    PhWriteMiniDumpProcess(
-                        NtCurrentProcess(),
-                        NtCurrentProcessId(),
-                        fileHandle,
-                        MiniDumpNormal,
-                        &exceptionInfo,
+                    PhShellProcessHacker(
                         NULL,
+                        NULL,
+                        SW_SHOW,
+                        0,
+                        PH_SHELL_APP_PROPAGATE_PARAMETERS | PH_SHELL_APP_PROPAGATE_PARAMETERS_IGNORE_VISIBILITY,
+                        0,
                         NULL
                         );
-
-                    NtClose(fileHandle);
                 }
-
-                PhDereferenceObject(dumpFileName);
-                PhDereferenceObject(dumpDirectory);
+                break;
+            case IDYES:
+                PhpCreateUnhandledExceptionCrashDump(ExceptionInfo); 
+                break;
             }
-            break;
         }
     }
+    else
+    {
+        if (PhShowMessage(
+            NULL,
+            MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
+            L"Process Hacker has crashed :(\r\n\r\n%s",
+            L"Do you want to create a minidump on the Desktop?"
+            ) == IDYES)
+        {
+            PhpCreateUnhandledExceptionCrashDump(ExceptionInfo);
+        }
 
-    RtlExitUserProcess(ExceptionInfo->ExceptionRecord->ExceptionCode);
+        PhShellProcessHacker(
+            NULL,
+            NULL,
+            SW_SHOW,
+            0,
+            PH_SHELL_APP_PROPAGATE_PARAMETERS | PH_SHELL_APP_PROPAGATE_PARAMETERS_IGNORE_VISIBILITY,
+            0,
+            NULL
+            );
+    }
+
+    PhExitApplication(ExceptionInfo->ExceptionRecord->ExceptionCode);
 
     PhDereferenceObject(message);
     PhDereferenceObject(errorMessage);
@@ -738,18 +809,18 @@ BOOLEAN PhInitializeExceptionPolicy(
     VOID
     )
 {
+#if (PHNT_VERSION >= PHNT_WIN7)
 #ifndef DEBUG
-    ULONG errorMode;
+    //ULONG errorMode;
+    //
+    //if (NT_SUCCESS(PhGetProcessErrorMode(NtCurrentProcess(), &errorMode)))
+    //{
+    //    errorMode |= (SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+    //    PhSetProcessErrorMode(NtCurrentProcess(), errorMode);
+    //}
 
-    if (NT_SUCCESS(PhGetProcessErrorMode(NtCurrentProcess(), &errorMode)))
-    {
-        errorMode &= ~(SEM_NOOPENFILEERRORBOX | SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
-        PhSetProcessErrorMode(NtCurrentProcess(), errorMode);
-    }
-
-    // NOTE: We really shouldn't be using this function since it can be
-    // preempted by the Win32 SetUnhandledExceptionFilter function. (dmex)
     RtlSetUnhandledExceptionFilter(PhpUnhandledExceptionCallback);
+#endif
 #endif
 
     return TRUE;
@@ -812,7 +883,9 @@ BOOLEAN PhInitializeMitigationPolicy(
     VOID
     )
 {
+#if (PHNT_VERSION >= PHNT_WIN7)
 #ifndef DEBUG
+    BOOLEAN PhpIsExploitProtectionEnabled(VOID); // Forwarded from options.c (dmex)
 #define DEFAULT_MITIGATION_POLICY_FLAGS \
     (PROCESS_CREATION_MITIGATION_POLICY_HEAP_TERMINATE_ALWAYS_ON | \
      PROCESS_CREATION_MITIGATION_POLICY_BOTTOM_UP_ASLR_ALWAYS_ON | \
@@ -834,6 +907,7 @@ BOOLEAN PhInitializeMitigationPolicy(
     BOOLEAN success = TRUE;
     //HANDLE jobObjectHandle = NULL;
     PPH_STRING commandline = NULL;
+    PH_STRINGREF commandlineSr;
     ULONG64 options[2] = { 0 };
     PS_SYSTEM_DLL_INIT_BLOCK(*LdrSystemDllInitBlock_I) = NULL;
     STARTUPINFOEX startupInfo = { sizeof(STARTUPINFOEX) };
@@ -841,14 +915,18 @@ BOOLEAN PhInitializeMitigationPolicy(
 
     if (WindowsVersion < WINDOWS_10_RS3)
         return TRUE;
-    if (!NT_SUCCESS(PhGetProcessCommandLine(NtCurrentProcess(), &commandline)))
+    if (!PhpIsExploitProtectionEnabled())
+        return TRUE;
+
+    PhUnicodeStringToStringRef(&NtCurrentPeb()->ProcessParameters->CommandLine, &commandlineSr);
+    //if (!NT_SUCCESS(PhGetProcessCommandLine(NtCurrentProcess(), &commandline)))
+    //    goto CleanupExit;
+    if (PhFindStringInStringRef(&commandlineSr, &rasCommandlinePart, FALSE) != -1)
         goto CleanupExit;
-    if (PhFindStringInStringRef(&commandline->sr, &rasCommandlinePart, FALSE) != -1)
-        goto CleanupExit;
-    if (PhEndsWithStringRef(&commandline->sr, &nompCommandlinePart, FALSE))
+    if (PhEndsWithStringRef(&commandlineSr, &nompCommandlinePart, FALSE))
         goto CleanupExit;
 
-    PhMoveReference(&commandline, PhConcatStringRef2(&commandline->sr, &nompCommandlinePart));
+    PhMoveReference(&commandline, PhConcatStringRef2(&commandlineSr, &nompCommandlinePart));
 
     if (!(LdrSystemDllInitBlock_I = PhGetDllProcedureAddress(L"ntdll.dll", "LdrSystemDllInitBlock", 0)))
         goto CleanupExit;
@@ -916,6 +994,10 @@ CleanupExit:
 #else
     return TRUE;
 #endif
+
+#else
+    return TRUE;
+#endif
 }
 
 NTSTATUS PhpReadSignature(
@@ -930,16 +1012,34 @@ NTSTATUS PhpReadSignature(
     ULONG bufferSize;
     IO_STATUS_BLOCK iosb;
 
-    if (!NT_SUCCESS(status = PhCreateFileWin32(&fileHandle, FileName, FILE_GENERIC_READ, FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ, FILE_OPEN, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT)))
-    {
+    status = PhCreateFileWin32(
+        &fileHandle,
+        FileName,
+        FILE_GENERIC_READ,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ,
+        FILE_OPEN,
+        FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
+        );
+
+    if (!NT_SUCCESS(status))
         return status;
-    }
 
     bufferSize = 1024;
     signature = PhAllocate(bufferSize);
 
-    status = NtReadFile(fileHandle, NULL, NULL, NULL, &iosb, signature, bufferSize, NULL, NULL);
+    status = NtReadFile(
+        fileHandle,
+        NULL,
+        NULL,
+        NULL,
+        &iosb,
+        signature,
+        bufferSize,
+        NULL,
+        NULL
+        );
+
     NtClose(fileHandle);
 
     if (NT_SUCCESS(status))
@@ -966,6 +1066,7 @@ VOID PhpShowKphError(
         PhShowError2(
             NULL,
             Message,
+            L"%s",
             L"You will be unable to use more advanced features, view details about system processes or terminate malicious software."
             );
     }
@@ -982,7 +1083,7 @@ VOID PhpShowKphError(
                 L"\r\n\r\n",
                 L"You will be unable to use more advanced features, view details about system processes or terminate malicious software."
                 );
-            PhShowError2(NULL, Message, statusMessage->Buffer);
+            PhShowError2(NULL, Message, L"%s", statusMessage->Buffer);
             PhDereferenceObject(statusMessage);
             PhDereferenceObject(errorMessage);
         }
@@ -990,7 +1091,8 @@ VOID PhpShowKphError(
         {
             PhShowError2(
                 NULL, 
-                Message, 
+                Message,
+                L"%s",
                 L"You will be unable to use more advanced features, view details about system processes or terminate malicious software."
                 );
         }
@@ -1003,89 +1105,103 @@ VOID PhInitializeKph(
     )
 {
     NTSTATUS status;
-    ULONG latestBuildNumber;
-    PPH_STRING applicationDirectory;
-    PPH_STRING kprocesshackerFileName;
-    PPH_STRING processhackerSigFileName;
-    KPH_PARAMETERS parameters;
+    PPH_STRING kphDirectory = NULL;
+    PPH_STRING kphFileName = NULL;
+    PPH_STRING kphSigFileName = NULL;
+    PPH_STRING kphServiceName = NULL;
 
-    latestBuildNumber = PhGetIntegerSetting(L"KphBuildNumber");
-
-    if (latestBuildNumber == 0)
-    {
-        PhSetIntegerSetting(L"KphBuildNumber", PhOsVersion.dwBuildNumber);
-    }
-    else
-    {
-        if (latestBuildNumber != PhOsVersion.dwBuildNumber)
-        {
-            // Reset KPH after a Windows build update. (dmex)
-            if (NT_SUCCESS(KphResetParameters(KPH_DEVICE_SHORT_NAME)))
-            {
-                PhSetIntegerSetting(L"KphBuildNumber", PhOsVersion.dwBuildNumber);
-            }
-        }
-    }
-
-    if (!(applicationDirectory = PhGetApplicationDirectory()))
+    if (!(kphDirectory = PhGetApplicationDirectory()))
         return;
 
-    kprocesshackerFileName = PhConcatStringRefZ(&applicationDirectory->sr, L"kprocesshacker.sys");
-    processhackerSigFileName = PhConcatStringRefZ(&applicationDirectory->sr, L"ProcessHacker.sig");
-    PhDereferenceObject(applicationDirectory);
+    kphServiceName = PhGetStringSetting(L"KphServiceName");
 
-    if (!PhDoesFileExistsWin32(kprocesshackerFileName->Buffer))
+    if (kphServiceName && PhIsNullOrEmptyString(kphServiceName))
+        PhClearReference(&kphServiceName);
+
+    kphFileName = PhConcatStringRefZ(&kphDirectory->sr, L"kprocesshacker.sys");
+    kphSigFileName = PhConcatStringRefZ(&kphDirectory->sr, L"processhacker.sig");
+
+    // Reset KPH after a Windows build update. (dmex)
     {
-        //if (PhGetIntegerSetting(L"EnableKphWarnings") && !PhStartupParameters.PhSvc)
-        //    PhpShowKphError(L"The Process Hacker kernel driver 'kprocesshacker.sys' was not found in the application directory.", STATUS_NO_SUCH_FILE);
-        return;
-    }
+        ULONG latestBuildNumber = PhGetIntegerSetting(L"KphBuildNumber");
 
-    parameters.SecurityLevel = KphSecuritySignatureAndPrivilegeCheck;
-    parameters.CreateDynamicConfiguration = TRUE;
-
-    if (NT_SUCCESS(status = KphConnect2Ex(
-        KPH_DEVICE_SHORT_NAME,
-        KPH_DEVICE_SHORT_NAME,
-        kprocesshackerFileName->Buffer,
-        &parameters
-        )))
-    {
-        PUCHAR signature;
-        ULONG signatureSize;
-
-        status = PhpReadSignature(
-            processhackerSigFileName->Buffer, 
-            &signature, 
-            &signatureSize
-            );
-
-        if (NT_SUCCESS(status))
+        if (latestBuildNumber == 0)
         {
-            status = KphVerifyClient(signature, signatureSize);
-
-            if (!NT_SUCCESS(status))
-            {
-                if (PhGetIntegerSetting(L"EnableKphWarnings") && !PhStartupParameters.PhSvc)
-                    PhpShowKphError(L"Unable to verify the kernel driver signature.", status);
-            }
-
-            PhFree(signature);
+            PhSetIntegerSetting(L"KphBuildNumber", PhOsVersion.dwBuildNumber);
         }
         else
         {
-            if (PhGetIntegerSetting(L"EnableKphWarnings") && !PhStartupParameters.PhSvc)
-                PhpShowKphError(L"Unable to load the kernel driver signature.", status);
+            if (latestBuildNumber != PhOsVersion.dwBuildNumber)
+            {
+                if (NT_SUCCESS(KphResetParameters(PhGetStringOrDefault(kphServiceName, KPH_DEVICE_SHORT_NAME))))
+                {
+                    PhSetIntegerSetting(L"KphBuildNumber", PhOsVersion.dwBuildNumber);
+                }
+            }
+        }
+    }
+
+    if (PhDoesFileExistsWin32(kphFileName->Buffer))
+    {
+        KPH_PARAMETERS parameters;
+
+        parameters.SecurityLevel = KphSecuritySignatureAndPrivilegeCheck;
+        parameters.CreateDynamicConfiguration = TRUE;
+
+        if (NT_SUCCESS(status = KphConnect2Ex(
+            PhGetStringOrDefault(kphServiceName, KPH_DEVICE_SHORT_NAME),
+            KPH_DEVICE_SHORT_NAME,
+            kphFileName->Buffer,
+            &parameters
+            )))
+        {
+            PUCHAR signature;
+            ULONG signatureSize;
+
+            status = PhpReadSignature(
+                kphSigFileName->Buffer,
+                &signature,
+                &signatureSize
+                );
+
+            if (NT_SUCCESS(status))
+            {
+                status = KphVerifyClient(signature, signatureSize);
+
+                if (!NT_SUCCESS(status))
+                {
+                    if (PhGetIntegerSetting(L"EnableKphWarnings") && !PhStartupParameters.PhSvc)
+                        PhpShowKphError(L"Unable to verify the kernel driver signature.", status);
+                }
+
+                PhFree(signature);
+            }
+            else
+            {
+                if (PhGetIntegerSetting(L"EnableKphWarnings") && !PhStartupParameters.PhSvc)
+                    PhpShowKphError(L"Unable to read the kernel driver signature.", status);
+            }
+        }
+        else
+        {
+            if (PhGetIntegerSetting(L"EnableKphWarnings") && PhGetOwnTokenAttributes().Elevated && !PhStartupParameters.PhSvc)
+                PhpShowKphError(L"Unable to load the kernel driver service.", status);
         }
     }
     else
     {
-        if (PhGetIntegerSetting(L"EnableKphWarnings") && PhGetOwnTokenAttributes().Elevated && !PhStartupParameters.PhSvc)
-            PhpShowKphError(L"Unable to load the kernel driver.", status);
+        if (PhGetIntegerSetting(L"EnableKphWarnings") && !PhStartupParameters.PhSvc)
+            PhpShowKphError(L"The kernel driver was not found.", STATUS_NO_SUCH_FILE);
     }
 
-    PhDereferenceObject(kprocesshackerFileName);
-    PhDereferenceObject(processhackerSigFileName);
+    if (kphServiceName)
+        PhDereferenceObject(kphServiceName);
+    if (kphSigFileName)
+        PhDereferenceObject(kphSigFileName);
+    if (kphFileName)
+        PhDereferenceObject(kphFileName);
+    if (kphDirectory)
+        PhDereferenceObject(kphDirectory);
 }
 
 BOOLEAN PhInitializeAppSystem(
@@ -1222,34 +1338,33 @@ VOID PhpInitializeSettings(
     }
 }
 
-#define PH_ARG_SETTINGS 1
-#define PH_ARG_NOSETTINGS 2
-#define PH_ARG_SHOWVISIBLE 3
-#define PH_ARG_SHOWHIDDEN 4
-#define PH_ARG_COMMANDMODE 5
-#define PH_ARG_COMMANDTYPE 6
-#define PH_ARG_COMMANDOBJECT 7
-#define PH_ARG_COMMANDACTION 8
-#define PH_ARG_COMMANDVALUE 9
-#define PH_ARG_RUNASSERVICEMODE 10
-#define PH_ARG_NOKPH 11
-#define PH_ARG_INSTALLKPH 12
-#define PH_ARG_UNINSTALLKPH 13
-#define PH_ARG_DEBUG 14
-#define PH_ARG_HWND 15
-#define PH_ARG_POINT 16
-#define PH_ARG_SHOWOPTIONS 17
-#define PH_ARG_PHSVC 18
-#define PH_ARG_NOPLUGINS 19
-#define PH_ARG_NEWINSTANCE 20
-#define PH_ARG_ELEVATE 21
-#define PH_ARG_SILENT 22
-#define PH_ARG_HELP 23
-#define PH_ARG_SELECTPID 24
-#define PH_ARG_PRIORITY 25
-#define PH_ARG_PLUGIN 26
-#define PH_ARG_SELECTTAB 27
-#define PH_ARG_SYSINFO 28
+typedef enum _PH_COMMAND_ARG
+{
+    PH_ARG_NONE,
+    PH_ARG_SETTINGS,
+    PH_ARG_NOSETTINGS,
+    PH_ARG_SHOWVISIBLE,
+    PH_ARG_SHOWHIDDEN,
+    PH_ARG_RUNASSERVICEMODE,
+    PH_ARG_NOKPH,
+    PH_ARG_INSTALLKPH,
+    PH_ARG_UNINSTALLKPH,
+    PH_ARG_DEBUG,
+    PH_ARG_HWND,
+    PH_ARG_POINT,
+    PH_ARG_SHOWOPTIONS,
+    PH_ARG_PHSVC,
+    PH_ARG_NOPLUGINS,
+    PH_ARG_NEWINSTANCE,
+    PH_ARG_ELEVATE,
+    PH_ARG_SILENT,
+    PH_ARG_HELP,
+    PH_ARG_SELECTPID,
+    PH_ARG_PRIORITY,
+    PH_ARG_PLUGIN,
+    PH_ARG_SELECTTAB,
+    PH_ARG_SYSINFO
+} PH_COMMAND_ARG;
 
 BOOLEAN NTAPI PhpCommandLineOptionCallback(
     _In_opt_ PPH_COMMAND_LINE_OPTION Option,
@@ -1275,21 +1390,6 @@ BOOLEAN NTAPI PhpCommandLineOptionCallback(
         case PH_ARG_SHOWHIDDEN:
             PhStartupParameters.ShowHidden = TRUE;
             break;
-        case PH_ARG_COMMANDMODE:
-            PhStartupParameters.CommandMode = TRUE;
-            break;
-        case PH_ARG_COMMANDTYPE:
-            PhSwapReference(&PhStartupParameters.CommandType, Value);
-            break;
-        case PH_ARG_COMMANDOBJECT:
-            PhSwapReference(&PhStartupParameters.CommandObject, Value);
-            break;
-        case PH_ARG_COMMANDACTION:
-            PhSwapReference(&PhStartupParameters.CommandAction, Value);
-            break;
-        case PH_ARG_COMMANDVALUE:
-            PhSwapReference(&PhStartupParameters.CommandValue, Value);
-            break;
         case PH_ARG_RUNASSERVICEMODE:
             PhSwapReference(&PhStartupParameters.RunAsServiceMode, Value);
             break;
@@ -1314,7 +1414,7 @@ BOOLEAN NTAPI PhpCommandLineOptionCallback(
                 PH_STRINGREF xString;
                 PH_STRINGREF yString;
 
-                if (Value && PhSplitStringRefAtChar(&Value->sr, ',', &xString, &yString))
+                if (Value && PhSplitStringRefAtChar(&Value->sr, L',', &xString, &yString))
                 {
                     LONG64 x;
                     LONG64 y;
@@ -1403,17 +1503,12 @@ VOID PhpProcessStartupParameters(
     VOID
     )
 {
-    static PH_COMMAND_LINE_OPTION options[] =
+    PH_COMMAND_LINE_OPTION options[] =
     {
         { PH_ARG_SETTINGS, L"settings", MandatoryArgumentType },
         { PH_ARG_NOSETTINGS, L"nosettings", NoArgumentType },
         { PH_ARG_SHOWVISIBLE, L"v", NoArgumentType },
         { PH_ARG_SHOWHIDDEN, L"hide", NoArgumentType },
-        { PH_ARG_COMMANDMODE, L"c", NoArgumentType },
-        { PH_ARG_COMMANDTYPE, L"ctype", MandatoryArgumentType },
-        { PH_ARG_COMMANDOBJECT, L"cobject", MandatoryArgumentType },
-        { PH_ARG_COMMANDACTION, L"caction", MandatoryArgumentType },
-        { PH_ARG_COMMANDVALUE, L"cvalue", MandatoryArgumentType },
         { PH_ARG_RUNASSERVICEMODE, L"ras", MandatoryArgumentType },
         { PH_ARG_NOKPH, L"nokph", NoArgumentType },
         { PH_ARG_INSTALLKPH, L"installkph", NoArgumentType },
@@ -1443,7 +1538,7 @@ VOID PhpProcessStartupParameters(
     if (!PhParseCommandLine(
         &commandLine,
         options,
-        sizeof(options) / sizeof(PH_COMMAND_LINE_OPTION),
+        RTL_NUMBER_OF(options),
         PH_COMMAND_LINE_IGNORE_UNKNOWN_OPTIONS | PH_COMMAND_LINE_IGNORE_FIRST_PART,
         PhpCommandLineOptionCallback,
         NULL
@@ -1451,12 +1546,8 @@ VOID PhpProcessStartupParameters(
     {
         PhShowInformation(
             NULL,
+            L"%s",
             L"Command line options:\n\n"
-            L"-c\n"
-            L"-ctype command-type\n"
-            L"-cobject command-object\n"
-            L"-caction command-action\n"
-            L"-cvalue command-value\n"
             L"-debug\n"
             L"-elevate\n"
             L"-help\n"
@@ -1478,7 +1569,7 @@ VOID PhpProcessStartupParameters(
             );
 
         if (PhStartupParameters.Help)
-            RtlExitUserProcess(STATUS_SUCCESS);
+            PhExitApplication(STATUS_SUCCESS);
     }
 
     if (PhStartupParameters.InstallKph)
@@ -1502,7 +1593,7 @@ VOID PhpProcessStartupParameters(
         if (!NT_SUCCESS(status) && !PhStartupParameters.Silent)
             PhShowStatus(NULL, L"Unable to install KProcessHacker", status, 0);
 
-        RtlExitUserProcess(status);
+        PhExitApplication(status);
     }
 
     if (PhStartupParameters.UninstallKph)
@@ -1514,7 +1605,7 @@ VOID PhpProcessStartupParameters(
         if (!NT_SUCCESS(status) && !PhStartupParameters.Silent)
             PhShowStatus(NULL, L"Unable to uninstall KProcessHacker", status, 0);
 
-        RtlExitUserProcess(status);
+        PhExitApplication(status);
     }
 
     if (PhStartupParameters.Elevate && !PhGetOwnTokenAttributes().Elevated)
@@ -1528,7 +1619,7 @@ VOID PhpProcessStartupParameters(
             0,
             NULL
             );
-        RtlExitUserProcess(STATUS_SUCCESS);
+        PhExitApplication(STATUS_SUCCESS);
     }
 
     if (PhStartupParameters.Debug)

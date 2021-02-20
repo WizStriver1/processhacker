@@ -60,6 +60,8 @@ PWSTR PvpGetProductIdComponent(
 {
     switch (ProductId)
     {
+    case prodidUnknown: // linker generated unnamed ordinal export stubs with RVAs of zero? 
+        return L"Linker generated export object";
     case prodidImport0:
         return L"Linker generated import object";
     case prodidResource:
@@ -106,6 +108,12 @@ PWSTR PvpGetProductIdComponent(
     case prodidCvtpgd1900:
         return L"Profile Guided Optimization (PGO) (19.0)";
 
+    case prodidCvtres800:
+        return L"Resource File To COFF Object (8.0)";
+    case prodidCvtres900:
+        return L"Resource File To COFF Object (9.0)";
+    case prodidCvtres1000:
+        return L"Resource File To COFF Object (10.0)";
     case prodidCvtres1010:
         return L"Resource File To COFF Object (10.1)";
     case prodidCvtres1100:
@@ -117,6 +125,12 @@ PWSTR PvpGetProductIdComponent(
     case prodidCvtres1400:
         return L"Resource File To COFF Object (14.0)";
 
+    case prodidExport800:
+        return L"Export (8.0)";
+    case prodidExport900:
+        return L"Export (9.0)";
+    case prodidExport1000:
+        return L"Export (10.0)";
     case prodidExport1010:
         return L"Export (10.1)";
     case prodidExport1100:
@@ -128,8 +142,12 @@ PWSTR PvpGetProductIdComponent(
     case prodidExport1400:
         return L"Export (14.0)";
 
+    case prodidImplib800:
+        return L"Import library tool (LIB) (8.0)";
     case prodidImplib900:
         return L"Import library tool (LIB) (9.0)";
+    case prodidImplib1000:
+        return L"Import library tool (LIB) (10.0)";
     case prodidImplib1010:
         return L"Import library tool (LIB) (10.1)";
     case prodidImplib1100:
@@ -141,6 +159,12 @@ PWSTR PvpGetProductIdComponent(
     case prodidImplib1400:
         return L"Import library tool (LIB) (14.0)";
 
+    case prodidLinker800:
+        return L"Linker (8.0)";
+    case prodidLinker900:
+        return L"Linker (9.0)";
+    case prodidLinker1000:
+        return L"Linker (10.0)";
     case prodidLinker1010:
         return L"Linker (10.1)";
     case prodidLinker1100:
@@ -152,8 +176,14 @@ PWSTR PvpGetProductIdComponent(
     case prodidLinker1400:
         return L"Linker (14.0)";
 
-    case prodidMasm1010:
+    case prodidMasm800:
+        return L"MASM (8.0)";
+    case prodidMasm900:
+        return L"MASM (9.0)";
+    case prodidMasm1000:
         return L"MASM (10.0)";
+    case prodidMasm1010:
+        return L"MASM (10.1)";
     case prodidMasm1100:
         return L"MASM (11.0)";
     case prodidMasm1200:
@@ -163,6 +193,10 @@ PWSTR PvpGetProductIdComponent(
     case prodidMasm1400:
         return L"MASM (14.0)";
 
+    case prodidUtc1400_C:
+        return L"C files (14.0)";
+    case prodidUtc1500_C:
+        return L"C files (15.0)";
     case prodidUtc1610_C:
         return L"C files (16.1)";
     case prodidUtc1700_C:
@@ -174,6 +208,10 @@ PWSTR PvpGetProductIdComponent(
     case prodidUtc1900_C:
         return L"C files (19.0)";
 
+    case prodidUtc1400_CPP:
+        return L"CPP files (14.0)";
+    case prodidUtc1500_CPP:
+        return L"CPP files (15.0)";
     case prodidUtc1610_CPP:
         return L"CPP files (16.1)";
     case prodidUtc1700_CPP:
@@ -185,6 +223,8 @@ PWSTR PvpGetProductIdComponent(
     case prodidUtc1900_CPP:
         return L"CPP files (19.0)";
 
+    case prodidUtc1500_CVTCIL_C:
+        return L"CIL to Native Converter (C99) (15.0)";
     case prodidUtc1610_CVTCIL_C:
         return L"CIL to Native Converter (C99) (16.1)";
     case prodidUtc1700_CVTCIL_C:
@@ -196,6 +236,8 @@ PWSTR PvpGetProductIdComponent(
     case prodidUtc1900_CVTCIL_C:
         return L"CIL to Native Converter (C11) (19.0)";
 
+    case prodidUtc1500_CVTCIL_CPP:
+        return L"CIL to Native Converter (CPP) (15.0)";
     case prodidUtc1610_CVTCIL_CPP:
         return L"CIL to Native Converter (CPP) (16.1)";
     case prodidUtc1700_CVTCIL_CPP:
@@ -207,6 +249,8 @@ PWSTR PvpGetProductIdComponent(
     case prodidUtc1900_CVTCIL_CPP:
         return L"CIL to Native Converter (CPP) (19.0)";
 
+    case prodidUtc1500_LTCG_C:
+        return L"Link-time Code Generation (C99) (15.0)";
     case prodidUtc1610_LTCG_C:
         return L"Link-time Code Generation (C99) (16.1)";
     case prodidUtc1700_LTCG_C:
@@ -218,6 +262,8 @@ PWSTR PvpGetProductIdComponent(
     case prodidUtc1900_LTCG_C:
         return L"Link-time Code Generation (C11) (19.0)";
 
+    case prodidUtc1500_LTCG_CPP:
+        return L"Link-time Code Generation (CPP) (15.0)";
     case prodidUtc1610_LTCG_CPP:
         return L"Link-time Code Generation (CPP) (16.1)";
     case prodidUtc1700_LTCG_CPP:
@@ -229,6 +275,8 @@ PWSTR PvpGetProductIdComponent(
     case prodidUtc1900_LTCG_CPP:
         return L"Link-time Code Generation (CPP) (19.0)";
 
+    case prodidUtc1500_LTCG_MSIL:
+        return L"Link-time Code Generation (MSIL) (15.0)";
     case prodidUtc1610_LTCG_MSIL:
         return L"Link-time Code Generation (MSIL) (16.1)";
     case prodidUtc1700_LTCG_MSIL:
@@ -240,6 +288,8 @@ PWSTR PvpGetProductIdComponent(
     case prodidUtc1900_LTCG_MSIL:
         return L"Link-time Code Generation (MSIL) (19.0)";
 
+    case prodidUtc1500_POGO_I_C:
+        return L"Profile Guided Optimization (Imput) (C11) (15.0)";
     case prodidUtc1610_POGO_I_C:
         return L"Profile Guided Optimization (Imput) (C11) (16.1)";
     case prodidUtc1700_POGO_I_C:
@@ -251,6 +301,8 @@ PWSTR PvpGetProductIdComponent(
     case prodidUtc1900_POGO_I_C:
         return L"Profile Guided Optimization (Imput) (C11) (19.0)";
 
+    case prodidUtc1400_POGO_O_C:
+    case prodidUtc1500_POGO_O_C:
     case prodidUtc1610_POGO_O_C:
     case prodidUtc1700_POGO_O_C:
     case prodidUtc1800_POGO_O_C:
@@ -258,13 +310,17 @@ PWSTR PvpGetProductIdComponent(
     case prodidUtc1900_POGO_O_C:
         return L"Profile Guided Optimization (Output) (C11)";
 
+    case prodidUtc1400_POGO_I_CPP:
+    case prodidUtc1500_POGO_I_CPP:
     case prodidUtc1610_POGO_I_CPP:
     case prodidUtc1700_POGO_I_CPP:
     case prodidUtc1800_POGO_I_CPP:
     case prodidUtc1810_POGO_I_CPP:
     case prodidUtc1900_POGO_I_CPP:
-        return L"Profile Guided Optimization (Imput) (C11)";
+        return L"Profile Guided Optimization (Imput) (CPP)";
 
+    case prodidUtc1400_POGO_O_CPP:
+    case prodidUtc1500_POGO_O_CPP:
     case prodidUtc1610_POGO_O_CPP:
     case prodidUtc1700_POGO_O_CPP:
     case prodidUtc1800_POGO_O_CPP:
@@ -276,6 +332,13 @@ PWSTR PvpGetProductIdComponent(
     return PhaFormatString(L"Report error (%lu)", ProductId)->Buffer;
 }
 
+typedef struct _PVP_PE_PRODUCTION_ID_CONTEXT
+{
+    HWND WindowHandle;
+    HWND ListViewHandle;
+    HIMAGELIST ListViewImageList;
+} PVP_PE_PRODUCTION_ID_CONTEXT, *PPVP_PE_PRODUCTION_ID_CONTEXT;
+
 INT_PTR CALLBACK PvpPeProdIdDlgProc(
     _In_ HWND hwndDlg,
     _In_ UINT uMsg,
@@ -285,9 +348,20 @@ INT_PTR CALLBACK PvpPeProdIdDlgProc(
 {
     LPPROPSHEETPAGE propSheetPage;
     PPV_PROPPAGECONTEXT propPageContext;
+    PPVP_PE_PRODUCTION_ID_CONTEXT context;
 
     if (!PvPropPageDlgProcHeader(hwndDlg, uMsg, lParam, &propSheetPage, &propPageContext))
         return FALSE;
+
+    if (uMsg == WM_INITDIALOG)
+    {
+        context = propPageContext->Context = PhAllocate(sizeof(PVP_PE_PRODUCTION_ID_CONTEXT));
+        memset(context, 0, sizeof(PVP_PE_PRODUCTION_ID_CONTEXT));
+    }
+    else
+    {
+        context = propPageContext->Context;
+    }
 
     switch (uMsg)
     {
@@ -295,33 +369,34 @@ INT_PTR CALLBACK PvpPeProdIdDlgProc(
         {
             PH_MAPPED_IMAGE_PRODID prodids;
             PH_MAPPED_IMAGE_PRODID_ENTRY entry;
-            HWND lvHandle;
             ULONG count = 0;
             ULONG i;
             INT lvItemIndex;
 
-            lvHandle = GetDlgItem(hwndDlg, IDC_LIST);
-            PhSetListViewStyle(lvHandle, TRUE, TRUE);
-            PhSetControlTheme(lvHandle, L"explorer");
-            PhAddListViewColumn(lvHandle, 0, 0, 0, LVCFMT_LEFT, 40, L"#");
-            PhAddListViewColumn(lvHandle, 1, 1, 1, LVCFMT_LEFT, 100, L"Component");
-            PhAddListViewColumn(lvHandle, 2, 2, 2, LVCFMT_LEFT, 100, L"Version");
-            PhAddListViewColumn(lvHandle, 3, 3, 3, LVCFMT_LEFT, 100, L"Count");
-            //PhAddListViewColumn(lvHandle, 4, 4, 4, LVCFMT_LEFT, 100, L"Product");
-            PhSetExtendedListView(lvHandle);
-            PhLoadListViewColumnsFromSetting(L"ImageProdIdListViewColumns", lvHandle);
+            context->WindowHandle = hwndDlg;
+            context->ListViewHandle = GetDlgItem(hwndDlg, IDC_LIST);
+
+            PhSetListViewStyle(context->ListViewHandle, TRUE, TRUE);
+            PhSetControlTheme(context->ListViewHandle, L"explorer");
+            PhAddListViewColumn(context->ListViewHandle, 0, 0, 0, LVCFMT_LEFT, 40, L"#");
+            PhAddListViewColumn(context->ListViewHandle, 1, 1, 1, LVCFMT_LEFT, 100, L"Component");
+            PhAddListViewColumn(context->ListViewHandle, 2, 2, 2, LVCFMT_LEFT, 100, L"Version");
+            PhAddListViewColumn(context->ListViewHandle, 3, 3, 3, LVCFMT_LEFT, 100, L"Count");
+            //PhAddListViewColumn(context->ListViewHandle, 4, 4, 4, LVCFMT_LEFT, 100, L"Product");
+            PhSetExtendedListView(context->ListViewHandle);
+            PhLoadListViewColumnsFromSetting(L"ImageProdIdListViewColumns", context->ListViewHandle);
+
+            if (context->ListViewImageList = ImageList_Create(2, 20, ILC_MASK | ILC_COLOR, 1, 1))
+                ListView_SetImageList(context->ListViewHandle, context->ListViewImageList, LVSIL_SMALL);
 
             if (NT_SUCCESS(PhGetMappedImageProdIdHeader(&PvMappedImage, &prodids)))
             {
                 PPH_STRING text;
 
-                if (prodids.Valid)
-                    text = PhaConcatStrings2(PhGetStringOrEmpty(prodids.Key), L" (correct)");
-                else
-                    text = PhaConcatStrings2(PhGetStringOrEmpty(prodids.Key), L" (incorrect)");
-
+                text = prodids.Valid ? prodids.Key : PhaConcatStrings2(PhGetStringOrEmpty(prodids.Key), L" (incorrect)");
                 PhSetDialogItemText(hwndDlg, IDC_PRODCHECKSUM, PhGetStringOrEmpty(text));
-                PhSetDialogItemText(hwndDlg, IDC_PRODHASH, PhGetStringOrEmpty(prodids.Hash));
+                PhSetDialogItemText(hwndDlg, IDC_PRODHASH, PhGetStringOrEmpty(prodids.RawHash));
+                PhSetDialogItemText(hwndDlg, IDC_PRODHASH2, PhGetStringOrEmpty(prodids.Hash));
 
                 for (i = 0; i < prodids.NumberOfEntries; i++)
                 {
@@ -333,18 +408,18 @@ INT_PTR CALLBACK PvpPeProdIdDlgProc(
                         continue;
 
                     PhPrintUInt32(number, ++count);
-                    lvItemIndex = PhAddListViewItem(lvHandle, MAXINT, number, NULL);
+                    lvItemIndex = PhAddListViewItem(context->ListViewHandle, MAXINT, number, NULL);
                     //PhSetListViewSubItem(lvHandle, lvItemIndex, 4, PvpGetProductIdName(entry.ProductId));
-                    PhSetListViewSubItem(lvHandle, lvItemIndex, 1, PvpGetProductIdComponent(entry.ProductId));
+                    PhSetListViewSubItem(context->ListViewHandle, lvItemIndex, 1, PvpGetProductIdComponent(entry.ProductId));
 
                     if (entry.ProductBuild)
                     {
                         PhPrintUInt32(number, entry.ProductBuild);
-                        PhSetListViewSubItem(lvHandle, lvItemIndex, 2, number);
+                        PhSetListViewSubItem(context->ListViewHandle, lvItemIndex, 2, number);
                     }
 
                     PhPrintUInt32(number, entry.ProductCount);
-                    PhSetListViewSubItem(lvHandle, lvItemIndex, 3, number);
+                    PhSetListViewSubItem(context->ListViewHandle, lvItemIndex, 3, number);
                 }
 
                 PhFree(prodids.ProdIdEntries);
@@ -352,12 +427,17 @@ INT_PTR CALLBACK PvpPeProdIdDlgProc(
                 PhClearReference(&prodids.Key);
             }
 
-            EnableThemeDialogTexture(hwndDlg, ETDT_ENABLETAB);
+            PhInitializeWindowTheme(hwndDlg, PeEnableThemeSupport);
         }
         break;
     case WM_DESTROY:
         {
-            PhSaveListViewColumnsToSetting(L"ImageProdIdListViewColumns", GetDlgItem(hwndDlg, IDC_LIST));
+            PhSaveListViewColumnsToSetting(L"ImageProdIdListViewColumns", context->ListViewHandle);
+
+            if (context->ListViewImageList)
+                ImageList_Destroy(context->ListViewImageList);
+
+            PhFree(context);
         }
         break;
     case WM_SHOWWINDOW:
@@ -367,8 +447,7 @@ INT_PTR CALLBACK PvpPeProdIdDlgProc(
                 PPH_LAYOUT_ITEM dialogItem;
 
                 dialogItem = PvAddPropPageLayoutItem(hwndDlg, hwndDlg, PH_PROP_PAGE_TAB_CONTROL_PARENT, PH_ANCHOR_ALL);
-                PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_LIST), dialogItem, PH_ANCHOR_ALL);
-
+                PvAddPropPageLayoutItem(hwndDlg, context->ListViewHandle, dialogItem, PH_ANCHOR_ALL);
                 PvDoPropPageLayout(hwndDlg);
 
                 propPageContext->LayoutInitialized = TRUE;
@@ -377,12 +456,12 @@ INT_PTR CALLBACK PvpPeProdIdDlgProc(
         break;
     case WM_NOTIFY:
         {
-            PvHandleListViewNotifyForCopy(lParam, GetDlgItem(hwndDlg, IDC_LIST));
+            PvHandleListViewNotifyForCopy(lParam, context->ListViewHandle);
         }
         break;
     case WM_CONTEXTMENU:
         {
-            PvHandleListViewCommandCopy(hwndDlg, lParam, wParam, GetDlgItem(hwndDlg, IDC_LIST));
+            PvHandleListViewCommandCopy(hwndDlg, lParam, wParam, context->ListViewHandle);
         }
         break;
     }

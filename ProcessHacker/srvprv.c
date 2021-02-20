@@ -89,9 +89,7 @@ typedef struct _PH_SERVICE_QUERY_S1_DATA
 {
     PH_SERVICE_QUERY_DATA Header;
 
-    PPH_STRING FileName;
-    HICON SmallIcon;
-    HICON LargeIcon;
+    PPH_IMAGELIST_ITEM IconEntry;
 } PH_SERVICE_QUERY_S1_DATA, *PPH_SERVICE_QUERY_S1_DATA;
 
 typedef struct _PH_SERVICE_QUERY_S2_DATA
@@ -190,8 +188,6 @@ PPH_SERVICE_ITEM PhCreateServiceItem(
         serviceItem->Flags = Information->ServiceStatusProcess.dwServiceFlags;
         serviceItem->ProcessId = UlongToHandle(Information->ServiceStatusProcess.dwProcessId);
 
-        if (serviceItem->ProcessId)
-            PhPrintUInt32(serviceItem->ProcessIdString, HandleToUlong(serviceItem->ProcessId));
     }
 
     PhEmCallObjectOperation(EmServiceItemType, serviceItem, EmObjectCreate);
@@ -212,8 +208,7 @@ VOID PhpServiceItemDeleteProcedure(
     if (serviceItem->DisplayName) PhDereferenceObject(serviceItem->DisplayName);
     if (serviceItem->FileName) PhDereferenceObject(serviceItem->FileName);
     if (serviceItem->VerifySignerName) PhDereferenceObject(serviceItem->VerifySignerName);
-    if (serviceItem->SmallIcon) DestroyIcon(serviceItem->SmallIcon);
-    if (serviceItem->LargeIcon) DestroyIcon(serviceItem->LargeIcon);
+    if (serviceItem->IconEntry) PhDereferenceObject(serviceItem->IconEntry);
     //PhDeleteImageVersionInfo(&serviceItem->VersionInfo);
 }
 
@@ -353,7 +348,7 @@ PH_SERVICE_CHANGE PhGetServiceChange(
         return ServiceStopped;
     }
 
-    return -1;
+    return ULONG_MAX;
 }
 
 VOID PhUpdateProcessItemServices(
@@ -442,12 +437,43 @@ VOID PhpUpdateServiceItemConfig(
         ULONG returnLength;
         PSERVICE_TRIGGER_INFO triggerInfo;
 
-        config = PhGetServiceConfig(serviceHandle);
-
-        if (config)
+        if (config = PhGetServiceConfig(serviceHandle))
         {
+            PPH_STRING fileName = NULL;
+
             ServiceItem->StartType = config->dwStartType;
             ServiceItem->ErrorControl = config->dwErrorControl;
+
+            PhGetServiceDllParameter(config->dwServiceType, &ServiceItem->Name->sr, &fileName);
+
+            if (!fileName)
+            {
+                PPH_STRING commandLine;
+
+                if (config->lpBinaryPathName[0])
+                {
+                    commandLine = PhCreateString(config->lpBinaryPathName);
+
+                    if (config->dwServiceType & SERVICE_WIN32)
+                    {
+                        PH_STRINGREF dummyFileName;
+                        PH_STRINGREF dummyArguments;
+
+                        PhParseCommandLineFuzzy(&commandLine->sr, &dummyFileName, &dummyArguments, &fileName);
+
+                        if (!fileName)
+                            PhSwapReference(&fileName, commandLine);
+                    }
+                    else
+                    {
+                        fileName = PhGetFileName(commandLine);
+                    }
+
+                    PhDereferenceObject(commandLine);
+                }
+            }
+
+            ServiceItem->FileName = fileName;
 
             PhFree(config);
         }
@@ -501,25 +527,13 @@ VOID PhpServiceQueryStage1(
     )
 {
     PPH_SERVICE_ITEM serviceItem = Data->Header.ServiceItem;
-    SC_HANDLE serviceManagerHandle = Data->Header.ServiceManagerHandle;
-    SC_HANDLE serviceHandle;
+    //SC_HANDLE serviceManagerHandle = Data->Header.ServiceManagerHandle;
 
-    if (serviceHandle = OpenService(
-        serviceManagerHandle,
-        serviceItem->Name->Buffer,
-        SERVICE_QUERY_CONFIG
-        ))
+    if (serviceItem->FileName)
     {
-        Data->FileName = PhGetServiceRelevantFileName(&serviceItem->Name->sr, serviceHandle);
-        CloseServiceHandle(serviceHandle);
-    }
-
-    if (Data->FileName)
-    {
-        if (!PhExtractIcon(Data->FileName->Buffer, &Data->LargeIcon, &Data->SmallIcon))
+        if (!(serviceItem->Type & SERVICE_DRIVER)) // Skip icons for driver services (dmex)
         {
-            Data->LargeIcon = NULL;
-            Data->SmallIcon = NULL;
+            Data->IconEntry = PhImageListExtractIcon(serviceItem->FileName);
         }
 
         // Version info.
@@ -621,9 +635,7 @@ VOID PhpFillServiceItemStage1(
 {
     PPH_SERVICE_ITEM serviceItem = Data->Header.ServiceItem;
 
-    serviceItem->FileName = Data->FileName;
-    serviceItem->SmallIcon = Data->SmallIcon;
-    serviceItem->LargeIcon = Data->LargeIcon;
+    serviceItem->IconEntry = Data->IconEntry;
     //memcpy(&processItem->VersionInfo, &Data->VersionInfo, sizeof(PH_IMAGE_VERSION_INFO));
 
     // Note: Queue stage 2 processing after filling stage1 process data.

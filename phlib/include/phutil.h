@@ -176,6 +176,14 @@ PhLargeIntegerToSystemTime(
     );
 
 PHLIBAPI
+BOOLEAN
+NTAPI
+PhSystemTimeToLargeInteger(
+    _Out_ PLARGE_INTEGER LargeInteger,
+    _In_ PSYSTEMTIME SystemTime
+    );
+
+PHLIBAPI
 VOID
 NTAPI
 PhLargeIntegerToLocalSystemTime(
@@ -497,6 +505,30 @@ PhStringToGuid(
     _Out_ PGUID Guid
     );
 
+typedef struct _VS_VERSION_INFO_STRUCT16
+{
+    USHORT Length;
+    USHORT ValueLength;
+    CHAR Key[1];
+} VS_VERSION_INFO_STRUCT16, *PVS_VERSION_INFO_STRUCT16;
+
+typedef struct _VS_VERSION_INFO_STRUCT32
+{
+    USHORT Length;
+    USHORT ValueLength;
+    USHORT Type;
+    WCHAR Key[1];
+} VS_VERSION_INFO_STRUCT32, *PVS_VERSION_INFO_STRUCT32;
+
+FORCEINLINE
+BOOLEAN
+PhIsFileVersionInfo32(
+    _In_ PVOID VersionInfo
+    )
+{
+    return ((PVS_VERSION_INFO_STRUCT16)VersionInfo)->Key[0] < 32;
+}
+
 PHLIBAPI
 PVOID
 NTAPI
@@ -505,15 +537,17 @@ PhGetFileVersionInfo(
     );
 
 PHLIBAPI
-_Success_(return)
-BOOLEAN
+VS_FIXEDFILEINFO*
 NTAPI
-PhGetFileVersionInfoValue(
-    _In_ PVOID VersionInfo,
-    _In_ PWSTR VersionInfoKey,
-    _Out_opt_ PVOID* Buffer,
-    _Out_opt_ PULONG BufferLength
+PhGetFileVersionFixedInfo(
+    _In_ PVOID VersionInfo
     );
+
+typedef struct _LANGANDCODEPAGE
+{
+    USHORT Language;
+    USHORT CodePage;
+} LANGANDCODEPAGE, *PLANGANDCODEPAGE;
 
 PHLIBAPI
 ULONG
@@ -536,7 +570,7 @@ NTAPI
 PhGetFileVersionInfoString2(
     _In_ PVOID VersionInfo,
     _In_ ULONG LangCodePage,
-    _In_ PWSTR StringName
+    _In_ PPH_STRINGREF KeyName
     );
 
 typedef struct _PH_IMAGE_VERSION_INFO
@@ -552,6 +586,15 @@ _Success_(return)
 BOOLEAN
 NTAPI
 PhInitializeImageVersionInfo(
+    _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
+    _In_ PWSTR FileName
+    );
+
+PHLIBAPI
+_Success_(return)
+BOOLEAN
+NTAPI
+PhInitializeImageVersionInfo2(
     _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
     _In_ PWSTR FileName
     );
@@ -573,14 +616,15 @@ PhFormatImageVersionInfo(
     _In_opt_ ULONG LineLimit
     );
 
-PHLIBAPI
 _Success_(return)
+PHLIBAPI
 BOOLEAN
 NTAPI
 PhInitializeImageVersionInfoCached(
     _Out_ PPH_IMAGE_VERSION_INFO ImageVersionInfo,
     _In_ PPH_STRING FileName,
-    _In_ BOOLEAN IsSubsystemProcess
+    _In_ BOOLEAN IsSubsystemProcess,
+    _In_ BOOLEAN ExtendedVersion
     );
 
 PHLIBAPI
@@ -591,6 +635,7 @@ PhFlushImageVersionInfoCache(
     );
 
 PHLIBAPI
+_Success_(return != NULL)
 PPH_STRING
 NTAPI
 PhGetFullPath(
@@ -691,6 +736,7 @@ typedef struct _PH_CREATE_PROCESS_INFO
 #define PH_CREATE_PROCESS_DEBUG 0x20
 #define PH_CREATE_PROCESS_DEBUG_ONLY_THIS_PROCESS 0x40
 #define PH_CREATE_PROCESS_EXTENDED_STARTUPINFO 0x80
+#define PH_CREATE_PROCESS_DEFAULT_ERROR_MODE 0x100
 
 PHLIBAPI
 NTSTATUS
@@ -996,6 +1042,61 @@ PhIsExecutablePacked(
     _Out_opt_ PULONG NumberOfFunctions
     );
 
+/**
+* Image Coherency Scan Type
+*/
+typedef enum _PH_IMGCOHERENCY_SCAN_TYPE
+{
+    /**
+    * Quick scan of the image coherency
+    * - Image header information
+    * - A few pages of each executable section
+    * - Scans a few pages at entry point if it exists and was missed due to previous note
+    * - .NET manifests if appropriate
+    */
+    PhImageCoherencyQuick,
+
+    /**
+    * Normal scan of the image coherency
+    * - Image header information
+    * - Up to 40Mib of each executable section 
+    * - Scans a few pages at entry point if it exists and was missed due to previous note
+    * - .NET manifests if appropriate
+    */
+    PhImageCoherencyNormal,
+
+    /**
+    * Full scan of the image coherency
+    * - Image header information
+    * - Complete scan of all executable sections, this will include the entry point
+    * - .NET manifests if appropriate
+    */
+    PhImageCoherencyFull
+
+} PH_IMAGE_COHERENCY_SCAN_TYPE;
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhGetProcessImageCoherency(
+    _In_ PWSTR FileName,
+    _In_ HANDLE ProcessId,
+    _In_ PH_IMAGE_COHERENCY_SCAN_TYPE Type,
+    _Out_ PFLOAT ImageCoherency
+    );
+
+PHLIBAPI
+NTSTATUS
+NTAPI
+PhGetProcessModuleImageCoherency(
+    _In_ PWSTR FileName,
+    _In_ HANDLE ProcessHandle,
+    _In_ PVOID ImageBaseAddress,
+    _In_ BOOLEAN IsKernelModule,
+    _In_ PH_IMAGE_COHERENCY_SCAN_TYPE Type,
+    _Out_ PFLOAT ImageCoherency
+    );
+
 PHLIBAPI
 ULONG
 NTAPI
@@ -1206,6 +1307,7 @@ PhFindLoaderEntry(
     );
 
 PHLIBAPI
+_Success_(return != NULL)
 PPH_STRING
 NTAPI
 PhGetDllFileName(

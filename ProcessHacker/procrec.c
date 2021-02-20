@@ -240,7 +240,7 @@ INT_PTR CALLBACK PhpProcessRecordDlgProc(
                     if (context->Record->FileName)
                     {
                         PhShellExecuteUserString(
-                            PhMainWndHandle,
+                            hwndDlg,
                             L"FileBrowseExecutable",
                             context->Record->FileName->Buffer,
                             FALSE,
@@ -255,12 +255,12 @@ INT_PTR CALLBACK PhpProcessRecordDlgProc(
 
                     if (processItem = PhReferenceProcessItemForRecord(context->Record))
                     {
-                        ProcessHacker_ShowProcessProperties(PhMainWndHandle, processItem);
+                        ProcessHacker_ShowProcessProperties(processItem);
                         PhDereferenceObject(processItem);
                     }
                     else
                     {
-                        PhShowError(hwndDlg, L"The process has already terminated; only the process record is available.");
+                        PhShowError(hwndDlg, L"%s", L"The process has already terminated; only the process record is available.");
                     }
                 }
                 break;

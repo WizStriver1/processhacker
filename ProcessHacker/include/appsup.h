@@ -121,7 +121,7 @@ PHAPPAPI
 VOID
 NTAPI
 PhSearchOnlineString(
-    _In_ HWND hWnd,
+    _In_ HWND WindowHandle,
     _In_ PWSTR String
     );
 
@@ -129,7 +129,7 @@ PHAPPAPI
 VOID
 NTAPI
 PhShellExecuteUserString(
-    _In_ HWND hWnd,
+    _In_ HWND WindowHandle,
     _In_ PWSTR Setting,
     _In_ PWSTR String,
     _In_ BOOLEAN UseShellExecute,
@@ -236,7 +236,7 @@ PHAPPAPI
 BOOLEAN
 NTAPI
 PhShellProcessHacker(
-    _In_opt_ HWND hWnd,
+    _In_opt_ HWND WindowHandle,
     _In_opt_ PWSTR Parameters,
     _In_ ULONG ShowWindowType,
     _In_ ULONG Flags,
@@ -247,7 +247,7 @@ PhShellProcessHacker(
 // end_phapppub
 
 BOOLEAN PhShellProcessHackerEx(
-    _In_opt_ HWND hWnd,
+    _In_opt_ HWND WindowHandle,
     _In_opt_ PWSTR FileName,
     _In_opt_ PWSTR Parameters,
     _In_ ULONG ShowWindowType,
@@ -286,17 +286,18 @@ NTAPI
 PhInitializeTreeNewColumnMenu(
     _Inout_ PPH_TN_COLUMN_MENU_DATA Data
     );
-// end_phapppub
 
 #define PH_TN_COLUMN_MENU_NO_VISIBILITY 0x1
 #define PH_TN_COLUMN_MENU_SHOW_RESET_SORT 0x2
 
-VOID PhInitializeTreeNewColumnMenuEx(
+PHAPPAPI
+VOID
+NTAPI
+PhInitializeTreeNewColumnMenuEx(
     _Inout_ PPH_TN_COLUMN_MENU_DATA Data,
     _In_ ULONG Flags
     );
 
-// begin_phapppub
 PHAPPAPI
 BOOLEAN
 NTAPI
@@ -424,11 +425,10 @@ NTAPI
 PhHandleCopyListViewEMenuItem(
     _In_ struct _PH_EMENU_ITEM *SelectedItem
     );
-
 // end_phapppub
 
 BOOLEAN PhShellOpenKey2(
-    _In_ HWND hWnd,
+    _In_ HWND WindowHandle,
     _In_ PPH_STRING KeyName
     );
 

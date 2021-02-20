@@ -2,7 +2,6 @@
 // Microsoft Visual C++ generated include file.
 // Used by ProcessHacker.rc
 //
-#define IDR_RT_MANIFEST                 1
 #define IDI_PROCESSHACKER               101
 #define IDR_MAINWND_ACCEL               102
 #define IDD_PROCGENERAL                 103
@@ -16,23 +15,17 @@
 #define IDC_IO                          114
 #define IDB_CROSS                       117
 #define IDB_TICK                        118
-#define IDC_PHYSICAL                    119
 #define IDC_MEMORY                      120
 #define IDD_ABOUT                       121
 #define IDC_NEWOBJECTS                  121
 #define IDC_REMOVEDOBJECTS              122
-#define IDC_CPUUSER                     123
-#define IDC_CPUKERNEL                   124
-#define IDC_IORO                        125
 #define IDD_SRVLIST                     125
 #define IDD_SRVGENERAL                  126
-#define IDC_IOW                         126
 #define IDD_HNDLGENERAL                 128
 #define IDD_INFORMATION                 129
 #define IDD_FINDOBJECTS                 130
 #define IDD_OBJTOKEN                    131
 #define ID_PLUGIN_MENU_ITEM             131
-#define IDC_SEPARATOR                   133
 #define IDD_HIDDENPROCESSES             135
 #define ID_TRAYICONS_REGISTERED         135
 #define IDD_RUNAS                       136
@@ -130,8 +123,8 @@
 #define IDC_CURDIR                      1022
 #define IDC_STARTED                     1023
 #define IDC_ABOUT_NAME                  1024
-#define IDC_PEBADDRESS                  1024
 #define IDC_TERMINATED                  1024
+#define IDC_PARENTCONSOLE               1024
 #define IDC_PARENTPROCESS               1025
 #define IDC_MITIGATION                  1026
 #define IDC_PAUSE                       1027
@@ -695,7 +688,6 @@
 #define ID_TAB_PREV                     40224
 #define ID_MISCELLANEOUS_RUNAS          40229
 #define ID_MISCELLANEOUS_RUNASTHISUSER  40230
-#define ID_HACKER_PLUGINS               40231
 #define ID_VIEW_HIDEPROCESSESFROMOTHERUSERS 40232
 #define ID_THREAD_AFFINITY              40233
 #define ID_VIEW_HIDESIGNEDPROCESSES     40234
@@ -752,8 +744,10 @@
 #define ID_GROUP_RESET                  40299
 #define ID_TOOLS_SCM_PERMISSIONS        40300
 #define ID_TOOLS_RDP_PERMISSIONS        40301
-#define ID_UIACCESS_REMOVE              40302
-#define ID_TOOLS_LIVEDUMP               40303
+#define ID_TOOLS_PWR_PERMISSIONS        40302
+#define ID_TOOLS_WMI_PERMISSIONS        40303
+#define ID_UIACCESS_REMOVE              40304
+#define ID_TOOLS_LIVEDUMP               40305
 #define IDDYNAMIC                       50000
 #define IDPLUGINS                       55000
 
@@ -761,7 +755,7 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        257
+#define _APS_NEXT_RESOURCE_VALUE        258
 #define _APS_NEXT_COMMAND_VALUE         40298
 #define _APS_NEXT_CONTROL_VALUE         1410
 #define _APS_NEXT_SYMED_VALUE           170

@@ -39,15 +39,7 @@ EXPORTS
 ; phconfig
     PhGlobalDpi DATA
     PhIsExecutingInWow64
-    PhInstanceHandle DATA
-    PhOsVersion DATA
     PhSystemBasicInformation DATA
-    ProcessAllAccess DATA
-    ProcessQueryAccess DATA
-    ThreadAllAccess DATA
-    ThreadQueryAccess DATA
-    ThreadSetAccess DATA
-    WindowsVersion DATA
 
 ; phbasesup
     PhAddElementAvlTree
@@ -156,6 +148,8 @@ EXPORTS
     PhfInitializeInitOnce
     PhfInitializeRundownProtection
     PhFormat
+    PhFormatBytes
+    PhFormatBytes_V
     PhFormatString
     PhFormatString_V
     PhFormatToBuffer
@@ -246,6 +240,7 @@ EXPORTS
     PhDeleteFileWin32
     PhDetermineDosPathNameType
     PhDoesFileExistsWin32
+    PhDoesFileExists
     PhDisconnectNamedPipe
     PhEnumerateKey
     PhEnumerateValueKey
@@ -277,6 +272,9 @@ EXPORTS
     PhGetOwnTokenAttributes
     PhGetDllHandle
     PhGetModuleProcAddress
+    PhGetNamedPipeClientComputerName
+    PhGetNamedPipeClientProcessId
+    PhGetNamedPipeServerProcessId
     PhGetProcedureAddress
     PhGetProcedureAddressRemote
     PhGetProcessCommandLine
@@ -315,6 +313,7 @@ EXPORTS
     PhQueryValueKey
     PhQueryTokenVariableSize
     PhResolveDevicePrefix
+    PhSetFileAllocationSize
     PhSetFilePosition
     PhSetFileSize
     PhSetObjectSecurity
@@ -378,6 +377,7 @@ EXPORTS
     PhGetFileDialogFilterIndex
     PhGetFileDialogOptions
     PhGetFileVersionInfo
+    PhGetFileVersionFixedInfo
     PhGetFileVersionInfoLangCodePage
     PhGetFileVersionInfoString
     PhGetFileVersionInfoString2
@@ -537,6 +537,7 @@ EXPORTS
     PhSetHeaderSortIcon
     PhSetImageListBitmap
     PhSetListViewItemImageIndex
+    PhSetListViewItemParam
     PhSetListViewSubItem
     PhAddListViewGroup
     PhAddListViewGroupItem
@@ -555,6 +556,7 @@ EXPORTS
     PhInitializeWindowTheme
     PhReInitializeWindowTheme
     PhInitializeWindowThemeStatusBar
+    PhInitializeWindowThemeRebar
     PhInitializeThemeWindowHeader
     PhGetGlobalTimerQueue
     PhThemeWindowDrawRebar
@@ -689,21 +691,6 @@ EXPORTS
     PhQueueItemWorkQueueEx
     PhWaitForWorkQueue
 
-; mxml
-    mxmlDelete
-    mxmlElementGetAttrCount
-    mxmlElementGetAttrByIndex
-    mxmlElementSetAttr
-    mxmlGetFirstChild
-    mxmlGetNextSibling
-    mxmlGetOpaque
-    mxmlGetType
-    mxmlLoadFd
-    mxmlNewOpaque
-    mxmlNewElement
-    mxmlSaveFd
-    mxml_opaque_cb
-
 ; json
     PhCreateJsonParser
     PhFreeJsonParser
@@ -722,6 +709,21 @@ EXPORTS
     PhGetJsonArrayLong64
     PhGetJsonArrayLength
     PhGetJsonArrayIndexObject
+
+; xml
+    PhLoadXmlObjectFromFile
+    PhSaveXmlObjectToFile
+    PhFreeXmlObject
+    PhGetOpaqueXmlNodeText
+    PhGetXmlNodeElementText
+    PhGetXmlNodeAttributeText
+    PhGetXmlNodeAttributeByIndex
+    PhSetXmlNodeAttributeText
+    PhGetXmlNodeAttributeCount
+    PhGetXmlNodeFirstChild
+    PhGetXmlNodeNextChild
+    PhCreateXmlNode
+    PhCreateXmlOpaqueNode
 
 ; cache
     PhCreateCacheFile
@@ -754,4 +756,5 @@ EXPORTS
     PhHttpSocketSetCredentials
     PhHttpDnsQuery
     PhDnsQuery
+    PhDnsQuery2
     PhDnsFree

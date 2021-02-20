@@ -3,7 +3,7 @@
  *   PE viewer
  *
  * Copyright (C) 2010-2011 wj32
- * Copyright (C) 2017-2020 dmex
+ * Copyright (C) 2017-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -23,11 +23,8 @@
 
 #include <peview.h>
 #include <workqueue.h>
-#include <cpysave.h>
 #include <verify.h>
 #include <shellapi.h>
-
-#include <secedit.h>
 
 #define PVM_CHECKSUM_DONE (WM_APP + 1)
 #define PVM_VERIFY_DONE (WM_APP + 2)
@@ -43,7 +40,7 @@ typedef enum _PVP_IMAGE_GENERAL_CATEGORY
 {
     PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
     PVP_IMAGE_GENERAL_CATEGORY_FILEINFO,
-    PVP_IMAGE_GENERAL_CATEGORY_PDB,
+    PVP_IMAGE_GENERAL_CATEGORY_DEBUGINFO,
     PVP_IMAGE_GENERAL_CATEGORY_MAXIMUM
 } PVP_IMAGE_GENERAL_CATEGORY;
 
@@ -55,7 +52,8 @@ typedef enum _PVP_IMAGE_GENERAL_INDEX
     PVP_IMAGE_GENERAL_INDEX_IMAGESIZE,
     PVP_IMAGE_GENERAL_INDEX_ENTRYPOINT,
     PVP_IMAGE_GENERAL_INDEX_CHECKSUM,
-    PVP_IMAGE_GENERAL_INDEX_CHECKSUMIAT,
+    //PVP_IMAGE_GENERAL_INDEX_CHECKSUMIAT,
+    PVP_IMAGE_GENERAL_INDEX_HEADERSPARE,
     PVP_IMAGE_GENERAL_INDEX_SUBSYSTEM,
     PVP_IMAGE_GENERAL_INDEX_SUBSYSTEMVERSION,
     PVP_IMAGE_GENERAL_INDEX_CHARACTERISTICS,
@@ -64,8 +62,14 @@ typedef enum _PVP_IMAGE_GENERAL_INDEX
     PVP_IMAGE_GENERAL_INDEX_FILECREATEDTIME,
     PVP_IMAGE_GENERAL_INDEX_FILEMODIFIEDTIME,
     PVP_IMAGE_GENERAL_INDEX_FILELASTWRITETIME,
+    PVP_IMAGE_GENERAL_INDEX_FILEINDEX,
+    PVP_IMAGE_GENERAL_INDEX_FILEID,
+    PVP_IMAGE_GENERAL_INDEX_FILEOBJECTID,
 
-    PVP_IMAGE_GENERAL_INDEX_PDB,
+    PVP_IMAGE_GENERAL_INDEX_DEBUGPDB,
+    PVP_IMAGE_GENERAL_INDEX_DEBUGIMAGE,
+    PVP_IMAGE_GENERAL_INDEX_DEBUGVCFEATURE,
+
     PVP_IMAGE_GENERAL_INDEX_MAXIMUM
 } PVP_IMAGE_GENERAL_INDEX;
 
@@ -108,6 +112,8 @@ VOID PvPeProperties(
     PPV_PROPCONTEXT propContext;
     PH_MAPPED_IMAGE_IMPORTS imports;
     PH_MAPPED_IMAGE_EXPORTS exports;
+    PIMAGE_LOAD_CONFIG_DIRECTORY32 config32;
+    PIMAGE_LOAD_CONFIG_DIRECTORY64 config64;
     PIMAGE_DATA_DIRECTORY entry;
 
     if (!PhExtractIcon(PvFileName->Buffer, &PvImageLargeIcon, &PvImageSmallIcon))
@@ -257,6 +263,120 @@ VOID PvPeProperties(
             PvAddPropPage(propContext, newPage);
         }
 
+        // TLS page
+        if (NT_SUCCESS(PhGetMappedImageDataEntry(&PvMappedImage, IMAGE_DIRECTORY_ENTRY_TLS, &entry)) && entry->VirtualAddress)
+        {
+            newPage = PvCreatePropPageContext(
+                MAKEINTRESOURCE(IDD_TLS),
+                PvpPeTlsDlgProc,
+                NULL
+                );
+            PvAddPropPage(propContext, newPage);
+        }
+
+        // RICH header page
+        {
+            // .NET executables don't include a RICH header.
+            if (!(NT_SUCCESS(PhGetMappedImageDataEntry(&PvMappedImage, IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR, &entry)) && entry->VirtualAddress))
+            {
+                newPage = PvCreatePropPageContext(
+                    MAKEINTRESOURCE(IDD_PEPRODID),
+                    PvpPeProdIdDlgProc,
+                    NULL
+                    );
+                PvAddPropPage(propContext, newPage);
+            }
+        }
+
+        // Certificates page
+        if (NT_SUCCESS(PhGetMappedImageDataEntry(&PvMappedImage, IMAGE_DIRECTORY_ENTRY_SECURITY, &entry)) && entry->VirtualAddress)
+        {
+            newPage = PvCreatePropPageContext(
+                MAKEINTRESOURCE(IDD_PESECURITY),
+                PvpPeSecurityDlgProc,
+                NULL
+                );
+            PvAddPropPage(propContext, newPage);
+        }
+
+        // Debug page
+        if (NT_SUCCESS(PhGetMappedImageDataEntry(&PvMappedImage, IMAGE_DIRECTORY_ENTRY_DEBUG, &entry)) && entry->VirtualAddress)
+        {
+            newPage = PvCreatePropPageContext(
+                MAKEINTRESOURCE(IDD_PEDEBUG),
+                PvpPeDebugDlgProc,
+                NULL
+                );
+            PvAddPropPage(propContext, newPage);
+        }
+
+        // EH continuation page
+        {
+            BOOLEAN has_ehcont = FALSE;
+
+            if (PvMappedImage.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+            {
+                if (NT_SUCCESS(PhGetMappedImageLoadConfig32(&PvMappedImage, &config32)) &&
+                    RTL_CONTAINS_FIELD(config32, config32->Size, GuardEHContinuationCount))
+                {
+                    if (config32->GuardEHContinuationTable && config32->GuardEHContinuationCount)
+                        has_ehcont = TRUE;
+                }
+            }
+            else
+            {
+                if (NT_SUCCESS(PhGetMappedImageLoadConfig64(&PvMappedImage, &config64)) &&
+                    RTL_CONTAINS_FIELD(config64, config64->Size, GuardEHContinuationCount))
+                {
+                    if (config64->GuardEHContinuationTable && config64->GuardEHContinuationCount)
+                        has_ehcont = TRUE;
+                }
+            }
+
+            if (has_ehcont)
+            {
+                newPage = PvCreatePropPageContext(
+                    MAKEINTRESOURCE(IDD_PEEHCONT),
+                    PvpPeEhContDlgProc,
+                    NULL
+                    );
+                PvAddPropPage(propContext, newPage);
+            }
+        }
+
+        // Debug POGO page
+        {
+            BOOLEAN debugPogoValid = FALSE;
+            PVOID debugEntry;
+
+            if (NT_SUCCESS(PhGetMappedImageDebugEntryByType(
+                &PvMappedImage,
+                IMAGE_DEBUG_TYPE_POGO,
+                NULL,
+                &debugEntry
+                )))
+            {
+                debugPogoValid = TRUE;
+            }
+
+            if (debugPogoValid)
+            {
+                newPage = PvCreatePropPageContext(
+                    MAKEINTRESOURCE(IDD_PEDEBUGPOGO),
+                    PvpPeDebugPogoDlgProc,
+                    NULL
+                    );
+                PvAddPropPage(propContext, newPage);
+
+                newPage = PvCreatePropPageContext(
+                    MAKEINTRESOURCE(IDD_PEDEBUGCRT),
+                    PvpPeDebugCrtDlgProc,
+                    NULL
+                    );
+                PvAddPropPage(propContext, newPage);
+            }
+        }
+
         // Properties page
         {
             newPage = PvCreatePropPageContext(
@@ -287,6 +407,16 @@ VOID PvPeProperties(
             PvAddPropPage(propContext, newPage);
         }
 
+        // Layout page
+        {
+            newPage = PvCreatePropPageContext(
+                MAKEINTRESOURCE(IDD_PELAYOUT),
+                PvpPeLayoutDlgProc,
+                NULL
+                );
+            PvAddPropPage(propContext, newPage);
+        }
+
         // Links page
         {
             newPage = PvCreatePropPageContext(
@@ -307,53 +437,16 @@ VOID PvPeProperties(
             PvAddPropPage(propContext, newPage);
         }
 
-        // TLS page
-        if (NT_SUCCESS(PhGetMappedImageDataEntry(&PvMappedImage, IMAGE_DIRECTORY_ENTRY_TLS, &entry)) && entry->VirtualAddress)
+        // Hashes page
         {
             newPage = PvCreatePropPageContext(
-                MAKEINTRESOURCE(IDD_TLS),
-                PvpPeTlsDlgProc,
+                MAKEINTRESOURCE(IDD_PEHASHES),
+                PvpPeHashesDlgProc,
                 NULL
                 );
             PvAddPropPage(propContext, newPage);
         }
-
-        // RICH header page
-        {
-            // .NET executables don't include a RICH header.
-            if (!(NT_SUCCESS(PhGetMappedImageDataEntry(&PvMappedImage, IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR, &entry)) && entry->VirtualAddress))
-            {
-                newPage = PvCreatePropPageContext(
-                    MAKEINTRESOURCE(IDD_PEPRODID),
-                    PvpPeProdIdDlgProc,
-                    NULL
-                    );
-                PvAddPropPage(propContext, newPage);
-            }
-        }
-
-        // Debug page
-        if (NT_SUCCESS(PhGetMappedImageDataEntry(&PvMappedImage, IMAGE_DIRECTORY_ENTRY_DEBUG, &entry)) && entry->VirtualAddress)
-        {
-            newPage = PvCreatePropPageContext(
-                MAKEINTRESOURCE(IDD_PEDEBUG),
-                PvpPeDebugDlgProc,
-                NULL
-                );
-            PvAddPropPage(propContext, newPage);
-        }
-
-        // Certificates page
-        if (NT_SUCCESS(PhGetMappedImageDataEntry(&PvMappedImage, IMAGE_DIRECTORY_ENTRY_SECURITY, &entry)) && entry->VirtualAddress)
-        {
-            newPage = PvCreatePropPageContext(
-                MAKEINTRESOURCE(IDD_PESECURITY),
-                PvpPeSecurityDlgProc,
-                NULL
-                );
-            PvAddPropPage(propContext, newPage);
-        }
-
+        
         // Text preview page
         {
             newPage = PvCreatePropPageContext(
@@ -385,38 +478,11 @@ static NTSTATUS CheckSumImageThreadStart(
     )
 {
     HWND windowHandle = Parameter;
-    PPH_STRING importHash = NULL;
     ULONG checkSum;
-    HANDLE fileHandle;
 
     checkSum = PhCheckSumMappedImage(&PvMappedImage);
 
-    if (NT_SUCCESS(PhCreateFileWin32(
-        &fileHandle,
-        PhGetString(PvFileName),
-        FILE_READ_ACCESS,
-        FILE_ATTRIBUTE_NORMAL,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        FILE_OPEN,
-        0
-        )))
-    {
-        BYTE importTableMd5Hash[16];
-
-        if (NT_SUCCESS(RtlComputeImportTableHash(fileHandle, importTableMd5Hash, RTL_IMPORT_TABLE_HASH_REVISION)))
-        {
-            importHash = PhBufferToHexString(importTableMd5Hash, 16);
-        }
-
-        NtClose(fileHandle);
-    }
-
-    PostMessage(
-        windowHandle,
-        PVM_CHECKSUM_DONE,
-        checkSum,
-        (LPARAM)importHash
-        );
+    PostMessage(windowHandle, PVM_CHECKSUM_DONE, checkSum, 0);
 
     return STATUS_SUCCESS;
 }
@@ -454,7 +520,7 @@ VERIFY_RESULT PvpVerifyFileWithAdditionalCatalog(
             PhSkipStringRef(&remainingFileName, windowsAppsPath->Length);
             indexOfBackslash = PhFindCharInStringRef(&remainingFileName, OBJ_NAME_PATH_SEPARATOR, FALSE);
 
-            if (indexOfBackslash != -1)
+            if (indexOfBackslash != SIZE_MAX)
             {
                 baseFileName.Buffer = FileName->Buffer;
                 baseFileName.Length = windowsAppsPath->Length + indexOfBackslash * sizeof(WCHAR);
@@ -574,7 +640,10 @@ VOID PvpSetPeImageVersionInfo(
 
     Static_SetIcon(GetDlgItem(WindowHandle, IDC_FILEICON), PvImageLargeIcon);
 
-    PhInitializeImageVersionInfo(&PvImageVersionInfo, PvFileName->Buffer);
+    if (PhGetIntegerSetting(L"EnableVersionSupport"))
+        PhInitializeImageVersionInfo2(&PvImageVersionInfo, PvFileName->Buffer);
+    else
+        PhInitializeImageVersionInfo(&PvImageVersionInfo, PvFileName->Buffer);
 
     string = PhConcatStrings2(L"(Verifying...) ", PvpGetStringOrNa(PvImageVersionInfo.CompanyName));
     PhSetDialogItemText(WindowHandle, IDC_NAME, PvpGetStringOrNa(PvImageVersionInfo.FileDescription));
@@ -643,32 +712,43 @@ VOID PvpSetPeImageTimeStamp(
     RtlSecondsSince1970ToTime(PvMappedImage.NtHeaders->FileHeader.TimeDateStamp, &time);
     PhLargeIntegerToLocalSystemTime(&systemTime, &time);
 
-    if (PhGetMappedImageDebugEntryByType(
+    if (NT_SUCCESS(PhGetMappedImageDebugEntryByType(
         &PvMappedImage,
         IMAGE_DEBUG_TYPE_REPRO,
         &debugEntryLength,
         &debugEntry
-        ))
+        )))
     {
         if (debugEntryLength > 0)
         {
-            //PPH_STRING timeStamp;
+            PPH_STRING timeStamp;
 
-            string = PhBufferToHexStringEx(debugEntry->Buffer, debugEntry->Length, FALSE);
-            //timeStamp = PhBufferToHexStringEx((PBYTE)&PvMappedImage.NtHeaders->FileHeader.TimeDateStamp, sizeof(ULONG), FALSE);
-            //if (PhEndsWithString(string, timeStamp, TRUE))
-            //    PhMoveReference(&string, PhFormatString(L"%s (correct)", string->Buffer));
-            //PhDereferenceObject(timeStamp);
+            __try
+            {
+                if (debugEntry->Length == debugEntryLength - sizeof(ULONG))
+                    string = PhBufferToHexStringEx(debugEntry->Buffer, debugEntry->Length, FALSE);
+                else
+                    string = PhBufferToHexStringEx(debugEntry->Buffer, debugEntryLength - sizeof(ULONG), FALSE);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER)
+            {
+                string = PhGetStatusMessage(GetExceptionCode(), 0);
+            }
 
-            //PhFormatString(L"%lx", PvMappedImage.NtHeaders->FileHeader.TimeDateStamp);
-            PhMoveReference(&string, PhConcatStringRefZ(&string->sr, L" (deterministic)"));
+            timeStamp = PhBufferToHexStringEx((PBYTE)&PvMappedImage.NtHeaders->FileHeader.TimeDateStamp, sizeof(ULONG), FALSE);
+
+            if (PhEndsWithString(string, timeStamp, TRUE))
+                PhMoveReference(&string, PhConcatStringRefZ(&string->sr, L" (deterministic)"));
+            else
+                PhMoveReference(&string, PhConcatStringRefZ(&string->sr, L" (deterministic) (incorrect)"));
+
+            PhDereferenceObject(timeStamp);
         }
-        else
+        else // CLR images
         {
-            // This is needed for CLR images with invalid REPRO debug entires.
             string = PhFormatDateTime(&systemTime);
             PhSwapReference(&string, PhFormatString(
-                L"%s (%lx) (deterministic) (legacy)",
+                L"%s (%lx) (deterministic)",
                 string->Buffer,
                 PvMappedImage.NtHeaders->FileHeader.TimeDateStamp
                 ));
@@ -712,7 +792,6 @@ VOID PvpSetPeImageSize(
     PPH_STRING string;
     ULONG lastRawDataAddress = 0;
     ULONG64 lastRawDataOffset = 0;
-    ULONG64 lastRawDataAddressSize = 0;
 
     // https://reverseengineering.stackexchange.com/questions/2014/how-can-one-extract-the-appended-data-of-a-portable-executable/2015#2015
 
@@ -748,7 +827,7 @@ VOID PvpSetPeImageSize(
 
         if (success)
         {
-            string = PhFormatString(L"%s (correct)", PhaFormatSize(PvMappedImage.Size, ULONG_MAX)->Buffer);
+            string = PhFormatString(L"%s", PhaFormatSize(PvMappedImage.Size, ULONG_MAX)->Buffer);
         }
         else
         {
@@ -767,7 +846,7 @@ VOID PvpSetPeImageSize(
     }
     else
     {
-        string = PhFormatString(L"%s (correct)", PhaFormatSize(PvMappedImage.Size, ULONG_MAX)->Buffer);
+        string = PhFormatString(L"%s", PhaFormatSize(PvMappedImage.Size, ULONG_MAX)->Buffer);
     }
 
     PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_IMAGESIZE, 1, string->Buffer);
@@ -801,11 +880,36 @@ VOID PvpSetPeImageCheckSum(
     string = PhFormatString(L"0x%I32x (verifying...)", PvMappedImage.NtHeaders->OptionalHeader.CheckSum); // same for 32-bit and 64-bit images
 
     PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_CHECKSUM, 1, string->Buffer);
-    PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_CHECKSUMIAT, 1, L"(verifying...)");
 
     PhQueueItemWorkQueue(PhGetGlobalWorkQueue(), CheckSumImageThreadStart, WindowHandle);
 
     PhDereferenceObject(string);
+}
+
+VOID PvpSetPeImageSpareHeaderBytes(
+    _In_ HWND ListViewHandle
+    )
+{
+    if (PvMappedImage.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+    {
+        ULONG nativeHeadersLength = PtrToUlong(PTR_SUB_OFFSET(PvMappedImage.NtHeaders32, PvMappedImage.ViewBase));
+        ULONG optionalHeadersLength = UFIELD_OFFSET(IMAGE_NT_HEADERS32, OptionalHeader) + PvMappedImage.NtHeaders32->FileHeader.SizeOfOptionalHeader;
+        ULONG sectionsLength = PvMappedImage.NtHeaders32->FileHeader.NumberOfSections * sizeof(IMAGE_SECTION_HEADER);
+        ULONG totalLength = nativeHeadersLength + optionalHeadersLength + sectionsLength;
+        ULONG spareLength = PtrToUlong(PTR_SUB_OFFSET(PvMappedImage.NtHeaders32->OptionalHeader.SizeOfHeaders, totalLength));
+
+        PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_HEADERSPARE, 1, PhaFormatSize(spareLength, ULONG_MAX)->Buffer);
+    }
+    else if (PvMappedImage.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+    {
+        ULONG nativeHeadersLength = PtrToUlong(PTR_SUB_OFFSET(PvMappedImage.NtHeaders, PvMappedImage.ViewBase));
+        ULONG optionalHeadersLength = UFIELD_OFFSET(IMAGE_NT_HEADERS64, OptionalHeader) + PvMappedImage.NtHeaders->FileHeader.SizeOfOptionalHeader;
+        ULONG sectionsLength = PvMappedImage.NtHeaders->FileHeader.NumberOfSections * sizeof(IMAGE_SECTION_HEADER);
+        ULONG totalLength = nativeHeadersLength + optionalHeadersLength + sectionsLength;
+        ULONG spareLength = PtrToUlong(PTR_SUB_OFFSET(PvMappedImage.NtHeaders->OptionalHeader.SizeOfHeaders, totalLength));
+
+        PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_HEADERSPARE, 1, PhaFormatSize(spareLength, ULONG_MAX)->Buffer);
+    }
 }
 
 VOID PvpSetPeImageSubsystem(
@@ -932,21 +1036,21 @@ VOID PvpSetPeImageCharacteristics(
     if (characteristicsDll & IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE)
         PhAppendStringBuilder2(&stringBuilder, L"Terminal server aware, ");
 
-    if (PhGetMappedImageDebugEntryByType(
+    if (NT_SUCCESS(PhGetMappedImageDebugEntryByType(
         &PvMappedImage,
         IMAGE_DEBUG_TYPE_EX_DLLCHARACTERISTICS,
         &debugEntryLength,
         &debugEntry
-        ))
+        )))
     {
-        ULONG characteristics = ULONG_MAX;
+        ULONG characteristicsEx = ULONG_MAX;
 
         if (debugEntryLength == sizeof(ULONG))
-            characteristics = *(ULONG*)debugEntry;
+            characteristicsEx = *(ULONG*)debugEntry;
 
-        if (characteristics != ULONG_MAX)
+        if (characteristicsEx != ULONG_MAX)
         {
-            if (characteristics & IMAGE_DLLCHARACTERISTICS_EX_CET_COMPAT)
+            if (characteristicsEx & IMAGE_DLLCHARACTERISTICS_EX_CET_COMPAT)
                 PhAppendStringBuilder2(&stringBuilder, L"CET compatible, ");
         }
     }
@@ -959,35 +1063,6 @@ VOID PvpSetPeImageCharacteristics(
 
     PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_CHARACTERISTICS, 1, PhFinalStringBuilderString(&stringBuilder)->Buffer);
     PhDeleteStringBuilder(&stringBuilder);
-}
-
-VOID PvpSetPeImageDebugVCFeatures(
-    _In_ HWND ListViewHandle
-    )
-{
-    PIMAGE_DEBUG_VC_FEATURE_ENTRY debugEntry;
-    ULONG debugEntryLength;
-
-    if (PhGetMappedImageDebugEntryByType(
-        &PvMappedImage,
-        IMAGE_DEBUG_TYPE_VC_FEATURE,
-        &debugEntryLength,
-        &debugEntry
-        ))
-    {
-        if (debugEntryLength != sizeof(IMAGE_DEBUG_VC_FEATURE_ENTRY))
-            return;
-
-        // Use the same format as dumpbin
-        PhFormatString(
-            L"Pre-VC++ 11.00=%lu, C/C++=%lu, /GS=%lu, /sdl=%lu, guardN=%lu",
-            debugEntry->PreVCPlusPlusCount,
-            debugEntry->CAndCPlusPlusCount,
-            debugEntry->GuardStackCount,
-            debugEntry->SdlCount,
-            debugEntry->GuardCount
-            );
-    }
 }
 
 PPH_STRING PvGetRelativeTimeString(
@@ -1007,92 +1082,219 @@ PPH_STRING PvGetRelativeTimeString(
     PhLargeIntegerToLocalSystemTime(&timeFields, &time);
     timeString = PhaFormatDateTime(&timeFields);
 
-    return PhaFormatString(L"%s ago (%s)", timeRelativeString->Buffer, timeString->Buffer);
+    return PhaFormatString(L"%s (%s ago)", timeString->Buffer, timeRelativeString->Buffer);
 }
 
 VOID PvpSetPeImageFileProperties(
     _In_ HWND ListViewHandle
     )
 {
-    FILE_NETWORK_OPEN_INFORMATION fileInfo;
+    HANDLE fileHandle;
+    FILE_BASIC_INFORMATION fileInfo;
+    FILE_INTERNAL_INFORMATION internalInfo;
+    FILE_OBJECTID_BUFFER objectInfo;
+    FILE_ID_INFORMATION fileIdInfo;
+    IO_STATUS_BLOCK isb;
 
-    if (NT_SUCCESS(PhQueryFullAttributesFileWin32(PhGetString(PvFileName), &fileInfo)))
+    if (NT_SUCCESS(PhCreateFileWin32(
+        &fileHandle,
+        PhGetString(PvFileName),
+        FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+        FILE_ATTRIBUTE_NORMAL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        FILE_OPEN,
+        FILE_SYNCHRONOUS_IO_NONALERT
+        )))
     {
-        if (fileInfo.CreationTime.QuadPart != 0)
+        if (NT_SUCCESS(NtQueryInformationFile(
+            fileHandle,
+            &isb,
+            &fileInfo,
+            sizeof(FILE_BASIC_INFORMATION),
+            FileBasicInformation
+            )))
         {
-            PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILECREATEDTIME, 1, PvGetRelativeTimeString(&fileInfo.CreationTime)->Buffer);
+            if (fileInfo.CreationTime.QuadPart != 0)
+            {
+                PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILECREATEDTIME, 1, PvGetRelativeTimeString(&fileInfo.CreationTime)->Buffer);
+            }
+
+            if (fileInfo.LastWriteTime.QuadPart != 0)
+            {
+                PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILEMODIFIEDTIME, 1, PvGetRelativeTimeString(&fileInfo.LastWriteTime)->Buffer);
+            }
+
+            if (fileInfo.ChangeTime.QuadPart != 0)
+            {
+                PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILELASTWRITETIME, 1, PvGetRelativeTimeString(&fileInfo.ChangeTime)->Buffer);
+            }
+
+            if (fileInfo.FileAttributes != 0)
+            {
+                //PH_STRING_BUILDER stringBuilder;
+                //WCHAR pointer[PH_PTR_STR_LEN_1];
+                //
+                //PhInitializeStringBuilder(&stringBuilder, 0x100);
+                //
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_READONLY)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Readonly, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_HIDDEN)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Hidden, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_SYSTEM)
+                //    PhAppendStringBuilder2(&stringBuilder, L"System, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Directory, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_ARCHIVE)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Archive, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_DEVICE)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Device, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_NORMAL)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Normal, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_TEMPORARY)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Temporary, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_SPARSE_FILE)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Sparse, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Reparse point, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_COMPRESSED)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Compressed, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_OFFLINE)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Offline, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Not indexed, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_ENCRYPTED)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Encrypted, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_INTEGRITY_STREAM)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Integiry, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_VIRTUAL)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Vitual, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_NO_SCRUB_DATA)
+                //    PhAppendStringBuilder2(&stringBuilder, L"No scrub, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_EA)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Extended attributes, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_PINNED)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Pinned, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_UNPINNED)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Unpinned, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_RECALL_ON_OPEN)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Recall on opened, ");
+                //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)
+                //    PhAppendStringBuilder2(&stringBuilder, L"Recall on data, ");
+                //if (PhEndsWithString2(stringBuilder.String, L", ", FALSE))
+                //    PhRemoveEndStringBuilder(&stringBuilder, 2);
+
+                //PhPrintPointer(pointer, UlongToPtr(fileInfo.FileAttributes));
+                //PhAppendFormatStringBuilder(&stringBuilder, L" (%s)", pointer);
+
+                //PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILEATTRIBUTES, 1, PhFinalStringBuilderString(&stringBuilder)->Buffer);
+                //PhDeleteStringBuilder(&stringBuilder);
+            }
         }
 
-        if (fileInfo.LastWriteTime.QuadPart != 0)
+        if (NT_SUCCESS(NtQueryInformationFile(
+            fileHandle,
+            &isb,
+            &internalInfo,
+            sizeof(FILE_INTERNAL_INFORMATION),
+            FileInternalInformation
+            )))
         {
-            PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILEMODIFIEDTIME, 1, PvGetRelativeTimeString(&fileInfo.LastWriteTime)->Buffer);
+            PPH_STRING string;
+            PH_FORMAT format[10];
+            struct
+            {
+                LONGLONG MftRecordIndex : 48;
+                LONGLONG SequenceNumber : 16;
+            } *IndexNumber = (PVOID)&internalInfo.IndexNumber.QuadPart;
+
+            PhInitFormatI64U(&format[0], internalInfo.IndexNumber.QuadPart);
+            PhInitFormatS(&format[1], L" (0x");
+            PhInitFormatI64X(&format[2], internalInfo.IndexNumber.QuadPart);
+            PhInitFormatS(&format[3], L")");
+
+            PhInitFormatS(&format[4], L" (MFT record: ");
+            PhInitFormatI64U(&format[5], IndexNumber->MftRecordIndex);
+            PhInitFormatS(&format[6], L")");
+
+            PhInitFormatS(&format[7], L" (Sequence number: ");
+            PhInitFormatI64U(&format[8], IndexNumber->SequenceNumber);
+            PhInitFormatS(&format[9], L")");
+
+            string = PhFormat(format, RTL_NUMBER_OF(format), 0x80);
+            PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILEINDEX, 1, string->Buffer);
+            PhDereferenceObject(string);
         }
 
-        if (fileInfo.ChangeTime.QuadPart != 0)
+        if (NT_SUCCESS(NtQueryInformationFile(
+            fileHandle,
+            &isb,
+            &fileIdInfo,
+            sizeof(FILE_ID_INFORMATION),
+            FileIdInformation
+            )))
         {
-            PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILELASTWRITETIME, 1, PvGetRelativeTimeString(&fileInfo.ChangeTime)->Buffer);
+            PPH_STRING string;
+            PPH_STRING guidstring;
+            PH_FORMAT format[7];
+            struct
+            {
+                ULONGLONG LowPart;
+                ULONGLONG HighPart;
+            } *fileId = (PVOID)&fileIdInfo.FileId;
+
+            // The identifier gets used as both a GUID and ULONGLONG (dmex)
+            guidstring = PhFormatGuid((PGUID)fileIdInfo.FileId.Identifier);
+            PhInitFormatSR(&format[0], guidstring->sr);
+            PhInitFormatS(&format[1], L" (0x");
+            PhInitFormatI64X(&format[2], fileId->LowPart);
+            PhInitFormatS(&format[3], L")");
+
+            if (fileId->HighPart != 0)
+            {
+                PhInitFormatS(&format[4], L" (0x");
+                PhInitFormatI64X(&format[5], fileId->HighPart);
+                PhInitFormatS(&format[6], L")");
+
+                string = PhFormat(format, RTL_NUMBER_OF(format), 0x80);
+            }
+            else
+            {
+                string = PhFormat(format, 4, 0x80);
+            }
+
+            PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILEID, 1, string->Buffer);
+            PhDereferenceObject(string);
+            PhDereferenceObject(guidstring);
         }
 
-        if (fileInfo.FileAttributes != 0)
+        if (NT_SUCCESS(NtFsControlFile(
+            fileHandle,
+            NULL,
+            NULL,
+            NULL,
+            &isb,
+            FSCTL_GET_OBJECT_ID,
+            NULL,
+            0,
+            &objectInfo,
+            sizeof(FILE_OBJECTID_BUFFER)
+            )))
         {
-            //PH_STRING_BUILDER stringBuilder;
-            //WCHAR pointer[PH_PTR_STR_LEN_1];
-            //
-            //PhInitializeStringBuilder(&stringBuilder, 0x100);
-            //
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_READONLY)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Readonly, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_HIDDEN)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Hidden, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_SYSTEM)
-            //    PhAppendStringBuilder2(&stringBuilder, L"System, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Directory, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_ARCHIVE)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Archive, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_DEVICE)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Device, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_NORMAL)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Normal, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_TEMPORARY)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Temporary, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_SPARSE_FILE)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Sparse, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Reparse point, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_COMPRESSED)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Compressed, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_OFFLINE)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Offline, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Not indexed, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_ENCRYPTED)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Encrypted, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_INTEGRITY_STREAM)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Integiry, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_VIRTUAL)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Vitual, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_NO_SCRUB_DATA)
-            //    PhAppendStringBuilder2(&stringBuilder, L"No scrub, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_EA)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Extended attributes, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_PINNED)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Pinned, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_UNPINNED)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Unpinned, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_RECALL_ON_OPEN)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Recall on opened, ");
-            //if (fileInfo.FileAttributes & FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)
-            //    PhAppendStringBuilder2(&stringBuilder, L"Recall on data, ");
-            //if (PhEndsWithString2(stringBuilder.String, L", ", FALSE))
-            //    PhRemoveEndStringBuilder(&stringBuilder, 2);
+            PPH_STRING string;
+            PGUID guid = (PGUID)objectInfo.ObjectId;
 
-            //PhPrintPointer(pointer, UlongToPtr(fileInfo.FileAttributes));
-            //PhAppendFormatStringBuilder(&stringBuilder, L" (%s)", pointer);
+            // The swap returns the same value as 'fsutil objectid query filepath' (dmex)
+            guid->Data1 = _byteswap_ulong(guid->Data1);
+            guid->Data2 = _byteswap_ushort(guid->Data2);
+            guid->Data3 = _byteswap_ushort(guid->Data3);
+            //TODO: highlight IsEqualGUID(objectInfo.ObjectId, objectInfo.BirthObjectId)
 
-            //PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILEATTRIBUTES, 1, PhFinalStringBuilderString(&stringBuilder)->Buffer);
-            //PhDeleteStringBuilder(&stringBuilder);
+            string = PhFormatGuid(guid);
+            PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_FILEOBJECTID, 1, string->Buffer);
+            PhDereferenceObject(string);
         }
+
+        NtClose(fileHandle);
     }
 }
 
@@ -1100,18 +1302,63 @@ VOID PvpSetPeImageDebugPdb(
     _In_ HWND ListViewHandle
     )
 {
-    PIMAGE_DEBUG_DIRECTORY_CODEVIEW debugEntry;
+    PCODEVIEW_INFO_PDB70 codeviewEntry;
     ULONG debugEntryLength;
 
-    if (PhGetMappedImageDebugEntryByType(
+    if (NT_SUCCESS(PhGetMappedImageDebugEntryByType(
         &PvMappedImage,
         IMAGE_DEBUG_TYPE_CODEVIEW,
         &debugEntryLength,
-        &debugEntry
-        ))
+        &codeviewEntry
+        )))
     {
+        PPH_STRING string;
+
         //if (debugEntryLength == sizeof(IMAGE_DEBUG_DIRECTORY_CODEVIEW))
-        PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_PDB, 1, PhFormatGuid(&debugEntry->PdbSignature)->Buffer);
+        if (codeviewEntry->Signature == CODEVIEW_SIGNATURE_RSDS)
+        {
+            string = PhFormatGuid(&codeviewEntry->PdbGuid);
+            PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_DEBUGPDB, 1, string->Buffer);
+            PhDereferenceObject(string);
+
+            string = PhConvertUtf8ToUtf16(codeviewEntry->ImageName);
+            PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_DEBUGIMAGE, 1, string->Buffer);
+            PhDereferenceObject(string);
+        }
+    }
+}
+
+VOID PvpSetPeImageDebugVCFeatures(
+    _In_ HWND ListViewHandle
+    )
+{
+    PIMAGE_DEBUG_VC_FEATURE_ENTRY debugEntry;
+    ULONG debugEntryLength;
+
+    if (NT_SUCCESS(PhGetMappedImageDebugEntryByType(
+        &PvMappedImage,
+        IMAGE_DEBUG_TYPE_VC_FEATURE,
+        &debugEntryLength,
+        &debugEntry
+        )))
+    {
+        PPH_STRING vcfeatures;
+
+        if (debugEntryLength != sizeof(IMAGE_DEBUG_VC_FEATURE_ENTRY))
+            return;
+
+        // Use the same format as dumpbin (dmex)
+        vcfeatures = PhFormatString(
+            L"C/C++ (%lu), GS (%lu), sdl (%lu), guardN (%lu), Pre-VC++ 11.00 (%lu)",
+            debugEntry->CAndCPlusPlusCount,
+            debugEntry->GuardStackCount,
+            debugEntry->SdlCount,
+            debugEntry->GuardCount,
+            debugEntry->PreVCPlusPlusCount
+            );
+
+        PhSetListViewSubItem(ListViewHandle, PVP_IMAGE_GENERAL_INDEX_DEBUGVCFEATURE, 1, vcfeatures->Buffer);
+        PhDereferenceObject(vcfeatures);
     }
 }
 
@@ -1125,106 +1372,29 @@ VOID PvpSetPeImageProperties(
     ListView_EnableGroupView(Context->ListViewHandle, TRUE);
     PhAddListViewGroup(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, L"Image information");
     PhAddListViewGroup(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_FILEINFO, L"File information");
+    PhAddListViewGroup(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_DEBUGINFO, L"Debug information");
 
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_NAME,
-        L"Target machine",
-        NULL
-        );  
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_TIMESTAMP,
-        L"Time stamp",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_IMAGEBASE,
-        L"Image base",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_IMAGESIZE,
-        L"Image size",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_ENTRYPOINT,
-        L"Entry point",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_CHECKSUM,
-        L"Header checksum",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_CHECKSUMIAT,
-        L"Import checksum",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_SUBSYSTEM,
-        L"Subsystem",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_SUBSYSTEMVERSION,
-        L"Subsystem version",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_BASICINFO,
-        PVP_IMAGE_GENERAL_INDEX_CHARACTERISTICS,
-        L"Characteristics",
-        NULL
-        );
-
-    //PhAddListViewGroupItem(
-    //    Context->ListViewHandle,
-    //    PVP_IMAGE_GENERAL_CATEGORY_FILEINFO,
-    //    PVP_IMAGE_GENERAL_INDEX_FILEATTRIBUTES,
-    //    L"Attributes",
-    //    NULL
-    //    );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_FILEINFO,
-        PVP_IMAGE_GENERAL_INDEX_FILECREATEDTIME,
-        L"Created time",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_FILEINFO,
-        PVP_IMAGE_GENERAL_INDEX_FILEMODIFIEDTIME,
-        L"Modified time",
-        NULL
-        );
-    PhAddListViewGroupItem(
-        Context->ListViewHandle,
-        PVP_IMAGE_GENERAL_CATEGORY_FILEINFO,
-        PVP_IMAGE_GENERAL_INDEX_FILELASTWRITETIME,
-        L"Updated time",
-        NULL
-        );
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_NAME, L"Target machine", NULL);  
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_TIMESTAMP, L"Time stamp", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_IMAGEBASE, L"Image base", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_IMAGESIZE, L"Image size", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_ENTRYPOINT, L"Entry point", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_CHECKSUM, L"Header checksum", NULL);
+    //PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_CHECKSUMIAT, L"Import checksum", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_HEADERSPARE, L"Header spare", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_SUBSYSTEM, L"Subsystem", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_SUBSYSTEMVERSION, L"Subsystem version", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_BASICINFO, PVP_IMAGE_GENERAL_INDEX_CHARACTERISTICS, L"Characteristics", NULL);
+    //PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_FILEINFO, PVP_IMAGE_GENERAL_INDEX_FILEATTRIBUTES, L"Attributes", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_FILEINFO, PVP_IMAGE_GENERAL_INDEX_FILECREATEDTIME, L"Created time", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_FILEINFO, PVP_IMAGE_GENERAL_INDEX_FILEMODIFIEDTIME, L"Modified time", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_FILEINFO, PVP_IMAGE_GENERAL_INDEX_FILELASTWRITETIME, L"Updated time", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_FILEINFO, PVP_IMAGE_GENERAL_INDEX_FILEINDEX, L"File index", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_FILEINFO, PVP_IMAGE_GENERAL_INDEX_FILEID, L"File identifier", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_FILEINFO, PVP_IMAGE_GENERAL_INDEX_FILEOBJECTID, L"File object identifier", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_DEBUGINFO, PVP_IMAGE_GENERAL_INDEX_DEBUGPDB, L"Guid", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_DEBUGINFO, PVP_IMAGE_GENERAL_INDEX_DEBUGIMAGE, L"Image name", NULL);
+    PhAddListViewGroupItem(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_DEBUGINFO, PVP_IMAGE_GENERAL_INDEX_DEBUGVCFEATURE, L"Feature count", NULL);
 
     PvpSetPeImageMachineType(Context->ListViewHandle);
     PvpSetPeImageTimeStamp(Context->ListViewHandle);
@@ -1232,20 +1402,14 @@ VOID PvpSetPeImageProperties(
     PvpSetPeImageSize(Context->ListViewHandle);
     PvpSetPeImageEntryPoint(Context->ListViewHandle);
     PvpSetPeImageCheckSum(Context->WindowHandle, Context->ListViewHandle);
+    PvpSetPeImageSpareHeaderBytes(Context->ListViewHandle);
     PvpSetPeImageSubsystem(Context->ListViewHandle);
     PvpSetPeImageCharacteristics(Context->ListViewHandle);
-
+    // File information
     PvpSetPeImageFileProperties(Context->ListViewHandle);
-
-    //PhAddListViewGroup(Context->ListViewHandle, PVP_IMAGE_GENERAL_CATEGORY_PDB, L"PDB debug information");
-    //PhAddListViewGroupItem(
-    //    Context->ListViewHandle,
-    //    PVP_IMAGE_GENERAL_CATEGORY_PDB,
-    //    PVP_IMAGE_GENERAL_INDEX_PDB,
-    //    L"PDB guid",
-    //    NULL
-    //    );
-    //PvpSetPeImageDebugPdb(Context->ListViewHandle);
+    // Debug information
+    PvpSetPeImageDebugPdb(Context->ListViewHandle);
+    PvpSetPeImageDebugVCFeatures(Context->ListViewHandle);
 
     //ExtendedListView_SortItems(Context->ListViewHandle);
     ExtendedListView_SetRedraw(Context->ListViewHandle, TRUE);
@@ -1270,11 +1434,11 @@ NTSTATUS PhpOpenFileSecurity(
         status = PhCreateFileWin32(
             Handle,
             PhGetString(PvFileName),
-            DesiredAccess| READ_CONTROL | WRITE_DAC,
+            DesiredAccess | READ_CONTROL | WRITE_DAC | SYNCHRONIZE,
             FILE_ATTRIBUTE_DIRECTORY,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             FILE_OPEN,
-            0
+            FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
             );
     }
     else
@@ -1282,11 +1446,11 @@ NTSTATUS PhpOpenFileSecurity(
         status = PhCreateFileWin32(
             Handle,
             PhGetString(PvFileName),
-            DesiredAccess | READ_CONTROL | WRITE_DAC,
+            DesiredAccess | READ_CONTROL | WRITE_DAC | SYNCHRONIZE,
             FILE_ATTRIBUTE_NORMAL,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             FILE_OPEN,
-            0
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
             );
 
         if (!NT_SUCCESS(status))
@@ -1294,11 +1458,11 @@ NTSTATUS PhpOpenFileSecurity(
             status = PhCreateFileWin32(
                 Handle,
                 PhGetString(PvFileName),
-                DesiredAccess | READ_CONTROL,
+                DesiredAccess | READ_CONTROL | SYNCHRONIZE,
                 FILE_ATTRIBUTE_NORMAL,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                 FILE_OPEN,
-                0
+                FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
                 );
         }
     }
@@ -1379,7 +1543,7 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
 {
     LPPROPSHEETPAGE propSheetPage;
     PPV_PROPPAGECONTEXT propPageContext;
-    PPVP_PE_GENERAL_CONTEXT context;
+    PPVP_PE_GENERAL_CONTEXT context = NULL;
 
     if (!PvPropPageDlgProcHeader(hwndDlg, uMsg, lParam, &propSheetPage, &propPageContext))
         return FALSE;
@@ -1409,7 +1573,7 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
             //PhLoadListViewColumnsFromSetting(L"ImageGeneralPropertiesListViewColumns", context->ListViewHandle);
             //PhLoadListViewSortColumnsFromSetting(L"ImageGeneralPropertiesListViewSort", context->ListViewHandle);
 
-            if (context->ListViewImageList = ImageList_Create(2, 20, ILC_COLOR, 1, 1))
+            if (context->ListViewImageList = ImageList_Create(2, 20, ILC_MASK | ILC_COLOR, 1, 1))
                 ListView_SetImageList(context->ListViewHandle, context->ListViewImageList, LVSIL_SMALL);
 
             PvpSetPeImageVersionInfo(hwndDlg);
@@ -1420,13 +1584,14 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
         break;
     case WM_DESTROY:
         {
-            PhSaveListViewSortColumnsToSetting(L"ImageGeneralPropertiesListViewSort", context->ListViewHandle);
-            PhSaveListViewColumnsToSetting(L"ImageGeneralPropertiesListViewColumns", context->ListViewHandle);
+            //PhSaveListViewSortColumnsToSetting(L"ImageGeneralPropertiesListViewSort", context->ListViewHandle);
+            //PhSaveListViewColumnsToSetting(L"ImageGeneralPropertiesListViewColumns", context->ListViewHandle);
 
             if (context->ListViewImageList)
                 ImageList_Destroy(context->ListViewImageList);
 
             PhFree(context);
+            context = NULL;
         }
         break;
     case WM_SHOWWINDOW:
@@ -1437,6 +1602,7 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
 
                 dialogItem = PvAddPropPageLayoutItem(hwndDlg, hwndDlg, PH_PROP_PAGE_TAB_CONTROL_PARENT, PH_ANCHOR_ALL);
                 PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_FILE), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
+                PvAddPropPageLayoutItem(hwndDlg, GetDlgItem(hwndDlg, IDC_NAME), dialogItem, PH_ANCHOR_LEFT | PH_ANCHOR_TOP | PH_ANCHOR_RIGHT);
                 PvAddPropPageLayoutItem(hwndDlg, context->ListViewHandle, dialogItem, PH_ANCHOR_ALL);
 
                 PvDoPropPageLayout(hwndDlg);
@@ -1455,13 +1621,11 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
     case PVM_CHECKSUM_DONE:
         {
             PPH_STRING string;
-            PPH_STRING importTableHash;
             ULONG headerCheckSum;
             ULONG realCheckSum;
 
             headerCheckSum = PvMappedImage.NtHeaders->OptionalHeader.CheckSum; // same for 32-bit and 64-bit images
             realCheckSum = (ULONG)wParam;
-            importTableHash = (PPH_STRING)lParam;
 
             if (headerCheckSum == 0)
             {
@@ -1472,7 +1636,7 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
             }
             else if (headerCheckSum == realCheckSum)
             {
-                string = PhFormatString(L"0x%I32x (correct)", headerCheckSum);
+                string = PhFormatString(L"0x%I32x", headerCheckSum);
                 PhSetListViewSubItem(context->ListViewHandle, PVP_IMAGE_GENERAL_INDEX_CHECKSUM, 1, string->Buffer);
                 PhDereferenceObject(string);
             }
@@ -1481,12 +1645,6 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
                 string = PhFormatString(L"0x%I32x (incorrect, real 0x%I32x)", headerCheckSum, realCheckSum);
                 PhSetListViewSubItem(context->ListViewHandle, PVP_IMAGE_GENERAL_INDEX_CHECKSUM, 1, string->Buffer);
                 PhDereferenceObject(string);
-            }
-
-            if (importTableHash)
-            {
-                PhSetListViewSubItem(context->ListViewHandle, PVP_IMAGE_GENERAL_INDEX_CHECKSUMIAT, 1, PhGetStringOrEmpty(importTableHash));
-                PhDereferenceObject(importTableHash);
             }
         }
         break;
@@ -1553,7 +1711,10 @@ INT_PTR CALLBACK PvpPeGeneralDlgProc(
         break;
     }
 
-    REFLECT_MESSAGE_DLG(hwndDlg, context->ListViewHandle, uMsg, wParam, lParam);
+    if (context)
+    {
+        REFLECT_MESSAGE_DLG(hwndDlg, context->ListViewHandle, uMsg, wParam, lParam);
+    }
 
     return FALSE;
 }
@@ -1562,18 +1723,12 @@ BOOLEAN PvpLoadDbgHelp(
     _Inout_ PPH_SYMBOL_PROVIDER *SymbolProvider
     )
 {
-    static PH_STRINGREF symbolPathVarName = PH_STRINGREF_INIT(L"_NT_SYMBOL_PATH");
-    PPH_STRING symbolSearchPath = NULL;
+    PPH_STRING symbolSearchPath;
     PPH_SYMBOL_PROVIDER symbolProvider;
-
-    if (!NT_SUCCESS(PhQueryEnvironmentVariable(NULL, &symbolPathVarName, &symbolSearchPath)))
-    {
-        symbolSearchPath = PhCreateString(L"SRV*C:\\Symbols*https://msdl.microsoft.com/download/symbols");
-    }
 
     symbolProvider = PhCreateSymbolProvider(NULL);
 
-    if (symbolSearchPath)
+    if (symbolSearchPath = PhGetStringSetting(L"DbgHelpSearchPath"))
     {
         PhSetSearchPathSymbolProvider(symbolProvider, symbolSearchPath->Buffer);
         PhDereferenceObject(symbolSearchPath);

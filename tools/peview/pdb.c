@@ -21,7 +21,6 @@
  */
 
 #include <peview.h>
-#include <cpysave.h>
 #include <symprv.h>
 #include <uxtheme.h>
 
@@ -1242,7 +1241,6 @@ NTSTATUS PeDumpFileSymbols(
             status = PhMapViewOfEntireFile(
                 PhGetString(PvFileName),
                 fileHandle,
-                TRUE,
                 &viewBase,
                 &size
                 );

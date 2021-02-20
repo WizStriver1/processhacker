@@ -3,7 +3,8 @@
  *   program settings cache
  *
  * Copyright (C) 2010-2016 wj32
- * Copyright (C) 2017-2018 dmex
+ * Copyright (C) 2017-2021 dmex
+ * Copyright (C) 2021 jxy-s
  *
  * This file is part of Process Hacker.
  *
@@ -27,7 +28,7 @@
 #include <phsettings.h>
 
 #define PH_UPDATE_SETTING(Name) \
-    (PhCs##Name = PhGetIntegerSetting(L#Name))
+    (PhCs##Name = PhGetIntegerSetting(TEXT(#Name)))
 
 VOID PhAddDefaultSettings(
     VOID
@@ -39,9 +40,10 @@ VOID PhAddDefaultSettings(
     PhpAddIntegerSetting(L"DbgHelpUndecorate", L"1");
     PhpAddStringSetting(L"DisabledPlugins", L"");
     PhpAddIntegerSetting(L"ElevationLevel", L"1"); // PromptElevateAction
+    PhpAddIntegerSetting(L"EnableAdvancedOptions", L"0");
     PhpAddIntegerSetting(L"EnableCycleCpuUsage", L"1");
     PhpAddIntegerSetting(L"EnableInstantTooltips", L"0");
-    PhpAddIntegerSetting(L"EnableKph", L"1");
+    PhpAddIntegerSetting(L"EnableKph", L"0");
     PhpAddIntegerSetting(L"EnableKphWarnings", L"0");
     PhpAddIntegerSetting(L"EnableHandleSnapshot", L"1");
     PhpAddIntegerSetting(L"EnableNetworkResolve", L"1");
@@ -55,8 +57,10 @@ VOID PhAddDefaultSettings(
     PhpAddIntegerSetting(L"EnableWindowText", L"1");
     PhpAddIntegerSetting(L"EnableThemeSupport", L"0");
     PhpAddIntegerSetting(L"EnableTooltipSupport", L"1");
+    PhpAddIntegerSetting(L"EnableSafeDefaultPlugins", L"1");
     PhpAddIntegerSetting(L"EnableSecurityAdvancedDialog", L"1");
     PhpAddIntegerSetting(L"EnableLinuxSubsystemSupport", L"0");
+    PhpAddIntegerSetting(L"EnableVersionSupport", L"1");
     PhpAddStringSetting(L"EnvironmentTreeListColumns", L"");
     PhpAddStringSetting(L"EnvironmentTreeListSort", L"0,0"); // 0, NoSortOrder
     PhpAddIntegerSetting(L"EnvironmentTreeListFlags", L"0");
@@ -69,6 +73,7 @@ VOID PhAddDefaultSettings(
     PhpAddStringSetting(L"Font", L""); // null
     PhpAddIntegerSetting(L"ForceNoParent", L"1");
     PhpAddIntegerSetting(L"KphBuildNumber", L"0");
+    PhpAddStringSetting(L"KphServiceName", L"");
     PhpAddStringSetting(L"HandleTreeListColumns", L"");
     PhpAddStringSetting(L"HandleTreeListSort", L"0,1"); // 0, AscendingSortOrder
     PhpAddIntegerSetting(L"HandleTreeListFlags", L"3");
@@ -92,6 +97,7 @@ VOID PhAddDefaultSettings(
     PhpAddIntegerSetting(L"IconProcesses", L"f"); // 15
     PhpAddIntegerSetting(L"IconSingleClick", L"0");
     PhpAddIntegerSetting(L"IconTogglesVisibility", L"1");
+    PhpAddIntegerSetting(L"ImageCoherencyScanLevel", L"1");
     PhpAddStringSetting(L"JobListViewColumns", L"");
     //PhpAddIntegerSetting(L"KphUnloadOnShutdown", L"0");
     PhpAddIntegerSetting(L"LogEntries", L"200"); // 512
@@ -133,25 +139,28 @@ VOID PhAddDefaultSettings(
     PhpAddStringSetting(L"NetworkTreeListColumns", L"");
     PhpAddStringSetting(L"NetworkTreeListSort", L"0,1"); // 0, AscendingSortOrder
     PhpAddIntegerSetting(L"NoPurgeProcessRecords", L"0");
+    PhpAddStringSetting(L"OptionsWindowAdvancedColumns", L"");
+    PhpAddIntegerSetting(L"OptionsWindowAdvancedFlags", L"0");
     PhpAddIntegerPairSetting(L"OptionsWindowPosition", L"0,0");
     PhpAddScalableIntegerPairSetting(L"OptionsWindowSize", L"@96|900,590");
     PhpAddIntegerPairSetting(L"PageFileWindowPosition", L"0,0");
     PhpAddScalableIntegerPairSetting(L"PageFileWindowSize", L"@96|500,300");
     PhpAddStringSetting(L"PageFileListViewColumns", L"");
-    PhpAddIntegerPairSetting(L"PluginManagerWindowPosition", L"0,0");
-    PhpAddScalableIntegerPairSetting(L"PluginManagerWindowSize", L"@96|900,590");
     PhpAddStringSetting(L"PluginManagerTreeListColumns", L"");
-    PhpAddStringSetting(L"PluginsDirectory", L"plugins");
     PhpAddStringSetting(L"ProcessServiceListViewColumns", L"");
     PhpAddStringSetting(L"ProcessTreeColumnSetConfig", L"");
     PhpAddStringSetting(L"ProcessTreeListColumns", L"");
     PhpAddStringSetting(L"ProcessTreeListSort", L"0,0"); // 0, NoSortOrder
+    PhpAddIntegerSetting(L"ProcessTreeListNameDefault", L"1");
     PhpAddStringSetting(L"ProcPropPage", L"General");
     PhpAddIntegerPairSetting(L"ProcPropPosition", L"200,200");
     PhpAddScalableIntegerPairSetting(L"ProcPropSize", L"@96|460,580");
+    PhpAddStringSetting(L"ProcStatPropPageGroupListViewColumns", L"");
+    PhpAddStringSetting(L"ProcStatPropPageGroupListViewSort", L"0,0");
     PhpAddStringSetting(L"ProcStatPropPageGroupStates", L"");
     PhpAddStringSetting(L"ProgramInspectExecutables", L"peview.exe \"%s\"");
     PhpAddIntegerSetting(L"PropagateCpuUsage", L"0");
+    PhpAddIntegerSetting(L"RunAsEnableAutoComplete", L"0");
     PhpAddStringSetting(L"RunAsProgram", L"");
     PhpAddStringSetting(L"RunAsUserName", L"");
     PhpAddIntegerSetting(L"RunFileDlgState", L"0");
@@ -168,7 +177,7 @@ VOID PhAddDefaultSettings(
     PhpAddStringSetting(L"ServiceTreeListColumns", L"");
     PhpAddStringSetting(L"ServiceTreeListSort", L"0,1"); // 0, AscendingSortOrder
     PhpAddIntegerPairSetting(L"SessionShadowHotkey", L"106,2"); // VK_MULTIPLY,KBDCTRL
-    PhpAddIntegerSetting(L"ShowPluginLoadErrors", L"0");
+    PhpAddIntegerSetting(L"ShowPluginLoadErrors", L"1");
     PhpAddIntegerSetting(L"ShowCommitInSummary", L"1");
     PhpAddIntegerSetting(L"ShowCpuBelow001", L"0");
     PhpAddIntegerSetting(L"ShowHexId", L"0");
@@ -229,6 +238,8 @@ VOID PhAddDefaultSettings(
     PhpAddIntegerSetting(L"ColorDotNet", L"00ffde");
     PhpAddIntegerSetting(L"UseColorPacked", L"1");
     PhpAddIntegerSetting(L"ColorPacked", L"9314ff"); // Deep Pink
+    PhpAddIntegerSetting(L"UseColorLowImageCoherency", L"1");
+    PhpAddIntegerSetting(L"ColorLowImageCoherency", L"ff14b9"); // Deep Purple 
     PhpAddIntegerSetting(L"UseColorGuiThreads", L"1");
     PhpAddIntegerSetting(L"ColorGuiThreads", L"77ffff");
     PhpAddIntegerSetting(L"UseColorRelocatedModules", L"1");
@@ -299,6 +310,8 @@ VOID PhUpdateCachedSettings(
     PH_UPDATE_SETTING(ColorDotNet);
     PH_UPDATE_SETTING(UseColorPacked);
     PH_UPDATE_SETTING(ColorPacked);
+    PH_UPDATE_SETTING(UseColorLowImageCoherency);
+    PH_UPDATE_SETTING(ColorLowImageCoherency);
     PH_UPDATE_SETTING(UseColorGuiThreads);
     PH_UPDATE_SETTING(ColorGuiThreads);
     PH_UPDATE_SETTING(UseColorRelocatedModules);
@@ -323,5 +336,8 @@ VOID PhUpdateCachedSettings(
     PH_UPDATE_SETTING(ColorPrivate);
     PH_UPDATE_SETTING(ColorPhysical);
 
+    PH_UPDATE_SETTING(ImageCoherencyScanLevel);
+
     PhEnableNetworkResolveDoHSupport = !!PhGetIntegerSetting(L"EnableNetworkResolveDoH");
+    PhEnableVersionShortText = !!PhGetIntegerSetting(L"EnableVersionSupport");
 }

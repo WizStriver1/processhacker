@@ -17,6 +17,7 @@ EXT BOOLEAN PhEnableThemeSupport;
 EXT BOOLEAN PhEnableTooltipSupport;
 EXT BOOLEAN PhEnableLinuxSubsystemSupport;
 EXT BOOLEAN PhEnableNetworkResolveDoHSupport;
+EXT BOOLEAN PhEnableVersionShortText;
 
 EXT ULONG PhCsForceNoParent;
 EXT ULONG PhCsHighlightingDuration;
@@ -54,6 +55,8 @@ EXT ULONG PhCsUseColorDotNet;
 EXT ULONG PhCsColorDotNet;
 EXT ULONG PhCsUseColorPacked;
 EXT ULONG PhCsColorPacked;
+EXT ULONG PhCsUseColorLowImageCoherency;
+EXT ULONG PhCsColorLowImageCoherency;
 EXT ULONG PhCsUseColorGuiThreads;
 EXT ULONG PhCsColorGuiThreads;
 EXT ULONG PhCsUseColorRelocatedModules;
@@ -78,6 +81,8 @@ EXT ULONG PhCsColorServiceDisabled;
 EXT ULONG PhCsUseColorServiceStop;
 EXT ULONG PhCsColorServiceStop;
 
-#define PH_SET_INTEGER_CACHED_SETTING(Name, Value) (PhSetIntegerSetting(L#Name, PhCs##Name = (Value)))
+EXT ULONG PhCsImageCoherencyScanLevel;
+
+#define PH_SET_INTEGER_CACHED_SETTING(Name, Value) (PhSetIntegerSetting(TEXT(#Name), PhCs##Name = (Value)))
 
 #endif

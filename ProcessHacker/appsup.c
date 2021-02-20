@@ -36,7 +36,7 @@
 #include <phappres.h>
 #include <phsvccl.h>
 
-#include "pcre/pcre2.h"
+#include "..\tools\thirdparty\pcre\pcre2.h"
 
 GUID XP_CONTEXT_GUID = { 0xbeb1b341, 0x6837, 0x4c83, { 0x83, 0x66, 0x2b, 0x45, 0x1e, 0x7c, 0xe6, 0x9b } };
 GUID VISTA_CONTEXT_GUID = { 0xe2011457, 0x1546, 0x43c5, { 0xa5, 0xfe, 0x00, 0x8d, 0xee, 0xe3, 0xd3, 0xf0 } };
@@ -564,7 +564,7 @@ BOOLEAN PhaGetProcessKnownCommandLine(
             PhUpperString(argPart);
             indexOfProcessId = PhFindStringInString(argPart, 0, L"/PROCESSID:");
 
-            if (indexOfProcessId == -1)
+            if (indexOfProcessId == SIZE_MAX)
                 return FALSE;
 
             guidString = PhaSubstring(
@@ -750,15 +750,15 @@ PPH_STRING PhUnescapeStringForDelimiter(
 }
 
 VOID PhSearchOnlineString(
-    _In_ HWND hWnd,
+    _In_ HWND WindowHandle,
     _In_ PWSTR String
     )
 {
-    PhShellExecuteUserString(hWnd, L"SearchEngine", String, TRUE, NULL);
+    PhShellExecuteUserString(WindowHandle, L"SearchEngine", String, TRUE, NULL);
 }
 
 VOID PhShellExecuteUserString(
-    _In_ HWND hWnd,
+    _In_ HWND WindowHandle,
     _In_ PWSTR Setting,
     _In_ PWSTR String,
     _In_ BOOLEAN UseShellExecute,
@@ -774,7 +774,7 @@ VOID PhShellExecuteUserString(
 
     if (!(applicationDirectory = PhGetApplicationDirectory()))
     {
-        PhShowStatus(hWnd, L"Unable to locate the application directory.", STATUS_NOT_FOUND, 0);
+        PhShowStatus(WindowHandle, L"Unable to locate the application directory.", STATUS_NOT_FOUND, 0);
         return;
     }
 
@@ -786,7 +786,7 @@ VOID PhShellExecuteUserString(
 
     // Make sure the user executable string is absolute. We can't use RtlDetermineDosPathNameType_U
     // here because the string may be a URL. (dmex)
-    if (PhFindCharInString(executeString, 0, L':') == -1)
+    if (PhFindCharInString(executeString, 0, L':') == SIZE_MAX)
     {
         INT stringArgCount;
         PWSTR* stringArgList;
@@ -843,7 +843,7 @@ VOID PhShellExecuteUserString(
 
     if (UseShellExecute)
     {
-        PhShellExecute(hWnd, executeString->Buffer, NULL);
+        PhShellExecute(WindowHandle, executeString->Buffer, NULL);
     }
     else
     {
@@ -857,7 +857,7 @@ VOID PhShellExecuteUserString(
             {
                 ntMessage = PhGetNtMessage(status);
                 PhShowError2(
-                    hWnd,
+                    WindowHandle,
                     L"Unable to execute the command.",
                     L"%s\n%s",
                     PhGetStringOrDefault(ntMessage, L"An unknown error occurred."),
@@ -867,7 +867,7 @@ VOID PhShellExecuteUserString(
             }
             else
             {
-                PhShowStatus(hWnd, L"Unable to execute the command.", status, 0);
+                PhShowStatus(WindowHandle, L"Unable to execute the command.", status, 0);
             }
         }
     }
@@ -962,6 +962,8 @@ VOID PhHandleListViewNotifyBehaviors(
     _In_ ULONG Behaviors
     )
 {
+#pragma warning(push)
+#pragma warning(disable:26454) // disable Windows SDK warning (dmex)
     if (((LPNMHDR)lParam)->hwndFrom == ListViewHandle && ((LPNMHDR)lParam)->code == LVN_KEYDOWN)
     {
         LPNMLVKEYDOWN keyDown = (LPNMLVKEYDOWN)lParam;
@@ -984,6 +986,7 @@ VOID PhHandleListViewNotifyBehaviors(
             break;
         }
     }
+#pragma warning(pop)
 }
 
 BOOLEAN PhGetListViewContextMenuPoint(
@@ -1130,7 +1133,7 @@ VOID PhWritePhTextHeader(
 }
 
 BOOLEAN PhShellProcessHacker(
-    _In_opt_ HWND hWnd,
+    _In_opt_ HWND WindowHandle,
     _In_opt_ PWSTR Parameters,
     _In_ ULONG ShowWindowType,
     _In_ ULONG Flags,
@@ -1140,7 +1143,7 @@ BOOLEAN PhShellProcessHacker(
     )
 {
     return PhShellProcessHackerEx(
-        hWnd,
+        WindowHandle,
         NULL,
         Parameters,
         ShowWindowType,
@@ -1169,7 +1172,7 @@ VOID PhpAppendCommandLineArgument(
 }
 
 BOOLEAN PhShellProcessHackerEx(
-    _In_opt_ HWND hWnd,
+    _In_opt_ HWND WindowHandle,
     _In_opt_ PWSTR FileName,
     _In_opt_ PWSTR Parameters,
     _In_ ULONG ShowWindowType,
@@ -1292,7 +1295,7 @@ BOOLEAN PhShellProcessHackerEx(
     }
 
     result = PhShellExecuteEx(
-        hWnd,
+        WindowHandle,
         FileName ? FileName : PhGetString(applicationFileName),
         parameters,
         ShowWindowType,
@@ -1358,6 +1361,7 @@ BOOLEAN PhCreateProcessIgnoreIfeoDebugger(
             NtClose(debugObjectHandle);
         }
 
+        // Ignore the debug object status.
         result = TRUE;
 
         NtClose(processHandle);
@@ -1388,8 +1392,8 @@ VOID PhInitializeTreeNewColumnMenuEx(
     PPH_EMENU_ITEM resetSortMenuItem = NULL;
     PPH_EMENU_ITEM sizeColumnToFitMenuItem;
     PPH_EMENU_ITEM sizeAllColumnsToFitMenuItem;
-    PPH_EMENU_ITEM hideColumnMenuItem;
-    PPH_EMENU_ITEM chooseColumnsMenuItem;
+    PPH_EMENU_ITEM hideColumnMenuItem = NULL;
+    PPH_EMENU_ITEM chooseColumnsMenuItem = NULL;
     ULONG minimumNumberOfColumns;
 
     Data->Menu = PhCreateEMenu();
@@ -1421,13 +1425,10 @@ VOID PhInitializeTreeNewColumnMenuEx(
 
     if (!(Flags & PH_TN_COLUMN_MENU_NO_VISIBILITY))
     {
-        PhInsertEMenuItem(Data->Menu, hideColumnMenuItem, ULONG_MAX);
-
-        if (resetSortMenuItem)
-            PhInsertEMenuItem(Data->Menu, resetSortMenuItem, ULONG_MAX);
-
+        if (hideColumnMenuItem) PhInsertEMenuItem(Data->Menu, hideColumnMenuItem, ULONG_MAX);
+        if (resetSortMenuItem) PhInsertEMenuItem(Data->Menu, resetSortMenuItem, ULONG_MAX);
         PhInsertEMenuItem(Data->Menu, PhCreateEMenuSeparator(), ULONG_MAX);
-        PhInsertEMenuItem(Data->Menu, chooseColumnsMenuItem, ULONG_MAX);
+        if (chooseColumnsMenuItem) PhInsertEMenuItem(Data->Menu, chooseColumnsMenuItem, ULONG_MAX);
 
         if (TreeNew_GetFixedColumn(Data->TreeNewHandle))
             minimumNumberOfColumns = 2; // don't allow user to remove all normal columns (the fixed column can never be removed)
@@ -1439,7 +1440,8 @@ VOID PhInitializeTreeNewColumnMenuEx(
             TreeNew_GetVisibleColumnCount(Data->TreeNewHandle) < minimumNumberOfColumns + 1
             )
         {
-            hideColumnMenuItem->Flags |= PH_EMENU_DISABLED;
+            if (hideColumnMenuItem)
+                PhSetDisabledEMenuItem(hideColumnMenuItem);
         }
     }
     else
@@ -1450,7 +1452,7 @@ VOID PhInitializeTreeNewColumnMenuEx(
 
     if (!Data->MouseEvent || !Data->MouseEvent->Column)
     {
-        sizeColumnToFitMenuItem->Flags |= PH_EMENU_DISABLED;
+        PhSetDisabledEMenuItem(sizeColumnToFitMenuItem);
     }
 }
 
@@ -1834,15 +1836,16 @@ BOOLEAN PhInsertCopyListViewEMenuItem(
     PPH_EMENU_ITEM parentItem = NULL;
     ULONG indexInParent = 0;
     PPH_COPY_ITEM_CONTEXT context;
-    PPH_STRING columnText = NULL;
+    PPH_STRING columnText;
     PPH_STRING escapedText;
     PPH_STRING menuItemText;
     PPH_EMENU_ITEM copyMenuItem;
     POINT location;
     LVHITTESTINFO lvHitInfo;
     HDITEM headerItem;
+    HWND headerHandle;
     PH_FORMAT format[3];
-    WCHAR headerText[MAX_PATH];
+    WCHAR headerText[MAX_PATH] = L"";
 
     if (!GetCursorPos(&location))
         return FALSE;
@@ -1855,13 +1858,13 @@ BOOLEAN PhInsertCopyListViewEMenuItem(
     if (ListView_SubItemHitTest(ListViewHandle, &lvHitInfo) == -1)
         return FALSE;
 
-    memset(headerText, 0, sizeof(headerText));
     memset(&headerItem, 0, sizeof(HDITEM));
     headerItem.mask = HDI_TEXT;
     headerItem.cchTextMax = RTL_NUMBER_OF(headerText);
     headerItem.pszText = headerText;
+    headerHandle = ListView_GetHeader(ListViewHandle);
 
-    if (!Header_GetItem(ListView_GetHeader(ListViewHandle), lvHitInfo.iSubItem, &headerItem))
+    if (!Header_GetItem(headerHandle, lvHitInfo.iSubItem, &headerItem))
         return FALSE;
 
     columnText = PhaCreateString(headerText);
@@ -1967,7 +1970,7 @@ BOOLEAN PhpSelectFavoriteInRegedit(
 
     count = GetMenuItemCount(favoritesMenu);
 
-    if (count == -1)
+    if (count == ULONG_MAX)
         return FALSE;
     if (count > 1000)
         count = 1000;
@@ -2030,11 +2033,11 @@ BOOLEAN PhpSelectFavoriteInRegedit(
  * Opens a key in the Registry Editor. If the Registry Editor is already open,
  * the specified key is selected in the Registry Editor.
  *
- * \param hWnd A handle to the parent window.
+ * \param WindowHandle A handle to the parent window.
  * \param KeyName The key name to open.
  */
 BOOLEAN PhShellOpenKey2(
-    _In_ HWND hWnd,
+    _In_ HWND WindowHandle,
     _In_ PPH_STRING KeyName
     )
 {
@@ -2050,13 +2053,13 @@ BOOLEAN PhShellOpenKey2(
 
     if (!regeditWindow)
     {
-        PhShellOpenKey(hWnd, KeyName);
+        PhShellOpenKey(WindowHandle, KeyName);
         return TRUE;
     }
 
     if (!PhGetOwnTokenAttributes().Elevated)
     {
-        if (!PhUiConnectToPhSvc(hWnd, FALSE))
+        if (!PhUiConnectToPhSvc(WindowHandle, FALSE))
             return FALSE;
     }
 
@@ -2192,7 +2195,9 @@ HRESULT PhRunAsAdminTask(
     _In_ PWSTR TaskName
     )
 {
-    HRESULT status = S_FALSE;
+    HRESULT status;
+    BSTR taskNameString = NULL;
+    BSTR taskFolderString = NULL;
     VARIANT empty = { VT_EMPTY };
     ITaskService* taskService = NULL;
     ITaskFolder* taskFolder = NULL;
@@ -2209,6 +2214,9 @@ HRESULT PhRunAsAdminTask(
     if (FAILED(status))
         goto CleanupExit;
 
+    taskNameString = SysAllocString(TaskName);
+    taskFolderString = SysAllocString(L"\\");
+
     status = ITaskService_Connect(
         taskService,
         empty,
@@ -2222,7 +2230,7 @@ HRESULT PhRunAsAdminTask(
 
     status = ITaskService_GetFolder(
         taskService,
-        L"\\",
+        taskFolderString,
         &taskFolder
         );
 
@@ -2231,7 +2239,7 @@ HRESULT PhRunAsAdminTask(
 
     status = ITaskFolder_GetTask(
         taskFolder,
-        TaskName,
+        taskNameString,
         &taskRegisteredTask
         );
 
@@ -2257,6 +2265,10 @@ CleanupExit:
         ITaskFolder_Release(taskFolder);
     if (taskService)
         ITaskService_Release(taskService);
+    if (taskFolderString)
+        SysFreeString(taskFolderString);
+    if (taskNameString)
+        SysFreeString(taskNameString);
 
     return status;
 }
@@ -2265,7 +2277,9 @@ HRESULT PhDeleteAdminTask(
     _In_ PWSTR TaskName
     )
 {
-    HRESULT status = S_FALSE;
+    HRESULT status;
+    BSTR taskNameString = NULL;
+    BSTR taskFolderString = NULL;
     VARIANT empty = { VT_EMPTY };
     ITaskService* taskService = NULL;
     ITaskFolder* taskFolder = NULL;
@@ -2280,6 +2294,9 @@ HRESULT PhDeleteAdminTask(
     if (FAILED(status))
         goto CleanupExit;
 
+    taskNameString = SysAllocString(TaskName);
+    taskFolderString = SysAllocString(L"\\");
+
     status = ITaskService_Connect(
         taskService,
         empty,
@@ -2293,7 +2310,7 @@ HRESULT PhDeleteAdminTask(
 
     status = ITaskService_GetFolder(
         taskService,
-        L"\\",
+        taskFolderString,
         &taskFolder
         );
 
@@ -2302,7 +2319,7 @@ HRESULT PhDeleteAdminTask(
 
     status = ITaskFolder_DeleteTask(
         taskFolder,
-        TaskName,
+        taskNameString,
         0
         );
 
@@ -2312,6 +2329,10 @@ CleanupExit:
         ITaskFolder_Release(taskFolder);
     if (taskService)
         ITaskService_Release(taskService);
+    if (taskFolderString)
+        SysFreeString(taskFolderString);
+    if (taskNameString)
+        SysFreeString(taskNameString);
 
     return status;
 }
@@ -2321,7 +2342,11 @@ HRESULT PhCreateAdminTask(
     _In_ PWSTR FileName
     )
 {
-    HRESULT status = S_FALSE;
+    HRESULT status;
+    BSTR taskNameString = NULL;
+    BSTR taskFileNameString = NULL;
+    BSTR taskFolderString = NULL;
+    BSTR taskTimeLimitString = NULL;
     VARIANT empty = { VT_EMPTY };
     ITaskService* taskService = NULL;
     ITaskFolder* taskFolder = NULL;
@@ -2347,6 +2372,11 @@ HRESULT PhCreateAdminTask(
     if (FAILED(status))
         goto CleanupExit;
 
+    taskNameString = SysAllocString(TaskName);
+    taskFileNameString = SysAllocString(FileName);
+    taskFolderString = SysAllocString(L"\\");
+    taskTimeLimitString = SysAllocString(L"PT0S");
+
     status = ITaskService_Connect(
         taskService,
         empty,
@@ -2360,7 +2390,7 @@ HRESULT PhCreateAdminTask(
 
     status = ITaskService_GetFolder(
         taskService,
-        L"\\",
+        taskFolderString,
         &taskFolder
         );
 
@@ -2388,7 +2418,7 @@ HRESULT PhCreateAdminTask(
     ITaskSettings_put_StartWhenAvailable(taskSettings, VARIANT_TRUE);
     ITaskSettings_put_DisallowStartIfOnBatteries(taskSettings, VARIANT_FALSE);
     ITaskSettings_put_StopIfGoingOnBatteries(taskSettings, VARIANT_FALSE);
-    ITaskSettings_put_ExecutionTimeLimit(taskSettings, L"PT0S");
+    ITaskSettings_put_ExecutionTimeLimit(taskSettings, taskTimeLimitString);
     //ITaskSettings_put_Priority(taskSettings, 1);
 
     if (SUCCEEDED(ITaskSettings_QueryInterface(
@@ -2470,7 +2500,7 @@ HRESULT PhCreateAdminTask(
 
     status = IExecAction_put_Path(
         taskExecAction,
-        FileName
+        taskFileNameString
         );
 
     if (FAILED(status))
@@ -2478,13 +2508,13 @@ HRESULT PhCreateAdminTask(
 
     ITaskFolder_DeleteTask(
         taskFolder,
-        TaskName,
+        taskNameString,
         0
         );
 
     status = ITaskFolder_RegisterTaskDefinition(
         taskFolder,
-        TaskName,
+        taskNameString,
         taskDefinition,
         TASK_CREATE_OR_UPDATE,
         empty,
@@ -2516,6 +2546,14 @@ CleanupExit:
         ITaskFolder_Release(taskFolder);
     if (taskService)
         ITaskService_Release(taskService);
+    if (taskTimeLimitString)
+        SysFreeString(taskTimeLimitString);
+    if (taskNameString)
+        SysFreeString(taskNameString);
+    if (taskFileNameString)
+        SysFreeString(taskFileNameString);
+    if (taskFolderString)
+        SysFreeString(taskFolderString);
 
     return status;
 }

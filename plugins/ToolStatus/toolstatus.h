@@ -3,7 +3,7 @@
  *   toolstatus header
  *
  * Copyright (C) 2010-2013 wj32
- * Copyright (C) 2011-2019 dmex
+ * Copyright (C) 2011-2020 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -41,13 +41,14 @@
 #define SETTING_NAME_TOOLBAR_CONFIG (PLUGIN_NAME L".ToolbarButtonConfig")
 #define SETTING_NAME_TOOLBAR_GRAPH_CONFIG (PLUGIN_NAME L".ToolbarGraphConfig")
 #define SETTING_NAME_STATUSBAR_CONFIG (PLUGIN_NAME L".StatusbarConfig")
-#define SETTING_NAME_TOOLBAR_THEME (PLUGIN_NAME L".ToolbarTheme")
+//#define SETTING_NAME_TOOLBAR_THEME (PLUGIN_NAME L".ToolbarTheme")
 #define SETTING_NAME_TOOLBARDISPLAYSTYLE (PLUGIN_NAME L".ToolbarDisplayStyle")
 #define SETTING_NAME_SEARCHBOXDISPLAYMODE (PLUGIN_NAME L".SearchBoxDisplayMode")
+#define SETTING_NAME_TASKBARDISPLAYSTYLE (PLUGIN_NAME L".TaskbarDisplayStyle")
 
-#define MAX_DEFAULT_TOOLBAR_ITEMS 9
+#define MAX_DEFAULT_TOOLBAR_ITEMS 11
 #define MAX_DEFAULT_STATUSBAR_ITEMS 3
-#define MAX_TOOLBAR_ITEMS 12
+#define MAX_TOOLBAR_ITEMS 13
 #define MAX_STATUSBAR_ITEMS 14
 
 #define TIDC_FINDWINDOW (WM_APP + 1)
@@ -143,6 +144,7 @@ extern PH_PLUGIN_SYSTEM_STATISTICS SystemStatistics;
 
 extern HIMAGELIST ToolBarImageList;
 extern TBBUTTON ToolbarButtons[MAX_TOOLBAR_ITEMS];
+extern HFONT ToolbarWindowFont;
 
 extern PPH_PLUGIN PluginInstance;
 extern PPH_TN_FILTER_ENTRY ProcessTreeFilterEntry;
@@ -442,6 +444,23 @@ BOOLEAN CreateSearchboxControl(
     VOID
     );
 
-extern HFONT ToolStatusWindowFont;
+// taskbar.c
+
+typedef enum _PH_TASKBAR_ICON
+{
+    TASKBAR_ICON_NONE,
+    TASKBAR_ICON_CPU_HISTORY,
+    TASKBAR_ICON_IO_HISTORY,
+    TASKBAR_ICON_COMMIT_HISTORY,
+    TASKBAR_ICON_PHYSICAL_HISTORY,
+    TASKBAR_ICON_CPU_USAGE,
+} PH_TASKBAR_ICON;
+
+extern PH_TASKBAR_ICON TaskbarListIconType;
+extern BOOLEAN TaskbarIsDirty;
+
+VOID NTAPI TaskbarUpdateGraphs(
+    VOID
+    );
 
 #endif

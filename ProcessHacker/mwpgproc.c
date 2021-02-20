@@ -269,7 +269,7 @@ VOID PhMwpToggleSignedProcessTreeFilter(
             PhShowInformation2(
                 PhMainWndHandle,
                 NULL,
-                L"This filter cannot function because digital signature checking is not enabled. "
+                L"This filter cannot function because digital signature checking is not enabled.\r\n%s",
                 L"Enable it in Options > General and restart Process Hacker."
                 );
             return;
@@ -857,7 +857,7 @@ VOID NTAPI PhMwpProcessesUpdatedHandler(
     _In_opt_ PVOID Context
     )
 {
-    ProcessHacker_Invoke(PhMainWndHandle, PhMwpOnProcessesUpdated, PhGetRunIdProvider(&PhMwpProcessProviderRegistration));
+    ProcessHacker_Invoke(PhMwpOnProcessesUpdated, PhGetRunIdProvider(&PhMwpProcessProviderRegistration));
 }
 
 VOID PhMwpOnProcessAdded(

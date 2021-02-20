@@ -57,7 +57,7 @@ BOOLEAN WordMatchStringRef(
 
     while (remainingPart.Length != 0)
     {
-        PhSplitStringRefAtChar(&remainingPart, '|', &part, &remainingPart);
+        PhSplitStringRefAtChar(&remainingPart, L'|', &part, &remainingPart);
 
         if (part.Length != 0)
         {
@@ -304,6 +304,7 @@ VOID WepDestroyWindowNode(
     if (WindowNode->WindowText) PhDereferenceObject(WindowNode->WindowText);
     if (WindowNode->ThreadString) PhDereferenceObject(WindowNode->ThreadString);
     if (WindowNode->ModuleString) PhDereferenceObject(WindowNode->ModuleString);
+    if (WindowNode->FileNameWin32) PhDereferenceObject(WindowNode->FileNameWin32);
 
     PhFree(WindowNode);
 }

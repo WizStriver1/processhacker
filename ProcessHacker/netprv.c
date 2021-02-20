@@ -4,7 +4,7 @@
  *
  * Copyright (C) 2010 wj32
  * Copyright (C) 2010 evilpie
- * Copyright (C) 2016-2019 dmex
+ * Copyright (C) 2016-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -356,32 +356,71 @@ PPH_STRING PhpGetDnsReverseNameFromAddress(
     _In_ PPH_IP_ADDRESS Address
     )
 {
+#define IP4_REVERSE_DOMAIN_STRING_LENGTH (IP4_ADDRESS_STRING_LENGTH + sizeof(DNS_IP4_REVERSE_DOMAIN_STRING_W) + 1)
+#define IP6_REVERSE_DOMAIN_STRING_LENGTH (IP6_ADDRESS_STRING_LENGTH + sizeof(DNS_IP6_REVERSE_DOMAIN_STRING_W) + 1)
+
     switch (Address->Type)
     {
     case PH_IPV4_NETWORK_TYPE:
         {
-            PH_STRING_BUILDER stringBuilder;
+            PH_FORMAT format[9];
+            SIZE_T returnLength;
+            WCHAR reverseNameBuffer[IP4_REVERSE_DOMAIN_STRING_LENGTH];
 
-            PhInitializeStringBuilder(&stringBuilder, DNS_MAX_IP4_REVERSE_NAME_LENGTH);
+            PhInitFormatU(&format[0], Address->InAddr.s_impno);
+            PhInitFormatC(&format[1], L'.');
+            PhInitFormatU(&format[2], Address->InAddr.s_lh);
+            PhInitFormatC(&format[3], L'.');
+            PhInitFormatU(&format[4], Address->InAddr.s_host);
+            PhInitFormatC(&format[5], L'.');
+            PhInitFormatU(&format[6], Address->InAddr.s_net);
+            PhInitFormatC(&format[7], L'.');
+            PhInitFormatS(&format[8], DNS_IP4_REVERSE_DOMAIN_STRING);
 
-            PhAppendFormatStringBuilder(
-                &stringBuilder,
-                L"%hhu.%hhu.%hhu.%hhu.",
-                Address->InAddr.s_impno,
-                Address->InAddr.s_lh,
-                Address->InAddr.s_host,
-                Address->InAddr.s_net
-                );
+            if (PhFormatToBuffer(
+                format,
+                RTL_NUMBER_OF(format),
+                reverseNameBuffer,
+                sizeof(reverseNameBuffer),
+                &returnLength
+                ))
+            {
+                PH_STRINGREF reverseNameString;
 
-            PhAppendStringBuilder2(&stringBuilder, DNS_IP4_REVERSE_DOMAIN_STRING);
+                reverseNameString.Buffer = reverseNameBuffer;
+                reverseNameString.Length = returnLength - sizeof(UNICODE_NULL);
 
-            return PhFinalStringBuilderString(&stringBuilder);
+                return PhCreateString2(&reverseNameString);
+            }
+            else
+            {
+                return PhFormat(format, RTL_NUMBER_OF(format), IP4_REVERSE_DOMAIN_STRING_LENGTH);
+            }
+            
+            //PH_STRING_BUILDER stringBuilder;
+            //
+            //// DNS_MAX_IP4_REVERSE_NAME_LENGTH
+            //PhInitializeStringBuilder(&stringBuilder, IP4_REVERSE_DOMAIN_STRING_LENGTH);
+            //
+            //PhAppendFormatStringBuilder(
+            //    &stringBuilder,
+            //    L"%hhu.%hhu.%hhu.%hhu.",
+            //    Address->InAddr.s_impno,
+            //    Address->InAddr.s_lh,
+            //    Address->InAddr.s_host,
+            //    Address->InAddr.s_net
+            //    );
+            //
+            //PhAppendStringBuilder2(&stringBuilder, DNS_IP4_REVERSE_DOMAIN_STRING);
+            //
+            //return PhFinalStringBuilderString(&stringBuilder);
         }
     case PH_IPV6_NETWORK_TYPE:
         {
             PH_STRING_BUILDER stringBuilder;
 
-            PhInitializeStringBuilder(&stringBuilder, DNS_MAX_IP6_REVERSE_NAME_LENGTH);
+            // DNS_MAX_IP6_REVERSE_NAME_LENGTH
+            PhInitializeStringBuilder(&stringBuilder, IP6_REVERSE_DOMAIN_STRING_LENGTH);
 
             for (INT i = sizeof(IN6_ADDR) - 1; i >= 0; i--)
             {
@@ -408,17 +447,21 @@ PPH_STRING PhGetHostNameFromAddressEx(
 {
     BOOLEAN dnsLocalQuery = FALSE;
     PPH_STRING dnsHostNameString = NULL;
-    PPH_STRING dnsReverseNameString = NULL;
-    PDNS_RECORD dnsRecordList = NULL;
+    PPH_STRING dnsReverseNameString;
+    PDNS_RECORD dnsRecordList;
 
     switch (Address->Type)
     {
     case PH_IPV4_NETWORK_TYPE:
         {
             if (IN4_IS_ADDR_UNSPECIFIED(&Address->InAddr))
-                return NULL;
+                return PhReferenceEmptyString();
 
             if (IN4_IS_ADDR_LOOPBACK(&Address->InAddr) ||
+                IN4_IS_ADDR_BROADCAST(&Address->InAddr) ||
+                IN4_IS_ADDR_MULTICAST(&Address->InAddr) ||
+                IN4_IS_ADDR_LINKLOCAL(&Address->InAddr) ||
+                IN4_IS_ADDR_MC_LINKLOCAL(&Address->InAddr) ||
                 IN4_IS_ADDR_RFC1918(&Address->InAddr))
             {
                 dnsLocalQuery = TRUE;
@@ -428,10 +471,12 @@ PPH_STRING PhGetHostNameFromAddressEx(
     case PH_IPV6_NETWORK_TYPE:
         {
             if (IN6_IS_ADDR_UNSPECIFIED(&Address->In6Addr))
-                return NULL;
+                return PhReferenceEmptyString();
 
             if (IN6_IS_ADDR_LOOPBACK(&Address->In6Addr) ||
-                IN6_IS_ADDR_LINKLOCAL(&Address->In6Addr))
+                IN6_IS_ADDR_MULTICAST(&Address->In6Addr) ||
+                IN6_IS_ADDR_LINKLOCAL(&Address->In6Addr) ||
+                IN6_IS_ADDR_MC_LINKLOCAL(&Address->In6Addr))
             {
                 dnsLocalQuery = TRUE;
             }
@@ -440,9 +485,9 @@ PPH_STRING PhGetHostNameFromAddressEx(
     }
 
     if (!(dnsReverseNameString = PhpGetDnsReverseNameFromAddress(Address)))
-        return NULL;
+        return PhReferenceEmptyString();
 
-    if (PhEnableNetworkResolveDoHSupport)
+    if (PhEnableNetworkResolveDoHSupport && !dnsLocalQuery)
     {
         dnsRecordList = PhDnsQuery(
             NULL,
@@ -450,15 +495,13 @@ PPH_STRING PhGetHostNameFromAddressEx(
             DNS_TYPE_PTR
             );
     }
-    else if (DnsQuery_W_Import())
+    else
     {
-        DnsQuery_W_Import()(
+        dnsRecordList = PhDnsQuery2(
+            NULL,
             dnsReverseNameString->Buffer,
             DNS_TYPE_PTR,
-            DNS_QUERY_BYPASS_CACHE | DNS_QUERY_NO_HOSTS_FILE,
-            NULL,
-            &dnsRecordList,
-            NULL
+            DNS_QUERY_NO_HOSTS_FILE // DNS_QUERY_BYPASS_CACHE
             );
     }
     
@@ -477,6 +520,9 @@ PPH_STRING PhGetHostNameFromAddressEx(
     }
 
     PhDereferenceObject(dnsReverseNameString);
+
+    if (!dnsHostNameString)
+        dnsHostNameString = PhReferenceEmptyString();
 
     return dnsHostNameString;
 }
@@ -541,10 +587,15 @@ VOID PhpQueueNetworkItemQuery(
     PPH_NETWORK_ITEM_QUERY_DATA data;
 
     if (!PhEnableNetworkProviderResolve)
+    {
+        if (Remote) // HACK: NULL used for status (dmex)
+            NetworkItem->RemoteHostString = PhReferenceEmptyString();
+        else
+            NetworkItem->LocalHostString = PhReferenceEmptyString();
         return;
+    }
 
-    data = PhAllocate(sizeof(PH_NETWORK_ITEM_QUERY_DATA));
-    memset(data, 0, sizeof(PH_NETWORK_ITEM_QUERY_DATA));
+    data = PhAllocateZero(sizeof(PH_NETWORK_ITEM_QUERY_DATA));
     data->NetworkItem = NetworkItem;
     data->Remote = Remote;
 
@@ -765,7 +816,7 @@ VOID PhNetworkProviderUpdate(
             }
 
             // Remote
-            if (!PhIsNullIpAddress(&networkItem->RemoteEndpoint.Address))
+            //if (!PhIsNullIpAddress(&networkItem->RemoteEndpoint.Address))
             {
                 PhAcquireQueuedLockShared(&PhpResolveCacheHashtableLock);
                 cacheItem = PhpLookupResolveCacheItem(&networkItem->RemoteEndpoint.Address);
@@ -792,7 +843,7 @@ VOID PhNetworkProviderUpdate(
 
                 if (PhTestEvent(&processItem->Stage1Event))
                 {
-                    networkItem->ProcessIcon = processItem->SmallIcon;
+                    networkItem->ProcessIconIndex = processItem->SmallIconIndex;
                     networkItem->ProcessIconValid = TRUE;
                 }
 
@@ -865,7 +916,7 @@ VOID PhNetworkProviderUpdate(
 
                 if (!networkItem->ProcessIconValid && PhTestEvent(&networkItem->ProcessItem->Stage1Event))
                 {
-                    networkItem->ProcessIcon = networkItem->ProcessItem->SmallIcon;
+                    networkItem->ProcessIconIndex = networkItem->ProcessItem->SmallIconIndex;
                     networkItem->ProcessIconValid = TRUE;
                     modified = TRUE;
                 }

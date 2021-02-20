@@ -134,14 +134,14 @@ VOID PhShowHandleObjectProperties1(
                 );
         }
         else
-            PhShowError(hWnd, L"Unable to open file location because the object is unnamed.");
+            PhShowError(hWnd, L"%s", L"Unable to open file location because the object is unnamed.");
     }
     else if (PhEqualString2(Info->TypeName, L"Key", TRUE))
     {
         if (Info->BestObjectName)
             PhShellOpenKey2(hWnd, Info->BestObjectName);
         else
-            PhShowError(hWnd, L"Unable to open key because the object is unnamed.");
+            PhShowError(hWnd, L"%s", L"Unable to open key because the object is unnamed.");
     }
     else if (PhEqualString2(Info->TypeName, L"Process", TRUE))
     {
@@ -201,12 +201,12 @@ VOID PhShowHandleObjectProperties1(
 
             if (targetProcessItem)
             {
-                ProcessHacker_ShowProcessProperties(PhMainWndHandle, targetProcessItem);
+                ProcessHacker_ShowProcessProperties(targetProcessItem);
                 PhDereferenceObject(targetProcessItem);
             }
             else
             {
-                PhShowError(hWnd, L"The process does not exist.");
+                PhShowError(hWnd, L"%s", L"The process does not exist.");
             }
         }
     }
@@ -283,7 +283,7 @@ VOID PhShowHandleObjectProperties1(
                     PPH_SHOW_MEMORY_EDITOR showMemoryEditor = PhAllocate(sizeof(PH_SHOW_MEMORY_EDITOR));
 
                     if (tooBig)
-                        PhShowWarning(hWnd, L"The section size is greater than 32 MB. Only the first 32 MB will be available for editing.");
+                        PhShowWarning(hWnd, L"%s", L"The section size is greater than 32 MB. Only the first 32 MB will be available for editing.");
 
                     memset(showMemoryEditor, 0, sizeof(PH_SHOW_MEMORY_EDITOR));
                     showMemoryEditor->ProcessId = NtCurrentProcessId();
@@ -293,7 +293,7 @@ VOID PhShowHandleObjectProperties1(
                     showMemoryEditor->SelectLength = 0;
                     showMemoryEditor->Title = sectionName ? PhConcatStrings2(L"Section - ", sectionName->Buffer) : PhCreateString(L"Section");
                     showMemoryEditor->Flags = PH_MEMORY_EDITOR_UNMAP_VIEW_OF_SECTION;
-                    ProcessHacker_ShowMemoryEditor(PhMainWndHandle, showMemoryEditor);
+                    ProcessHacker_ShowMemoryEditor(showMemoryEditor);
                 }
                 else
                 {
@@ -374,11 +374,11 @@ VOID PhShowHandleObjectProperties1(
                 propContext = PhCreateProcessPropContext(NULL, targetProcessItem);
                 PhDereferenceObject(targetProcessItem);
                 PhSetSelectThreadIdProcessPropContext(propContext, clientId.UniqueThread);
-                ProcessHacker_Invoke(PhMainWndHandle, PhpShowProcessPropContext, propContext);
+                ProcessHacker_Invoke(PhpShowProcessPropContext, propContext);
             }
             else
             {
-                PhShowError(hWnd, L"The process does not exist.");
+                PhShowError(hWnd, L"%s", L"The process does not exist.");
             }
         }
     }
@@ -398,6 +398,6 @@ VOID PhShowHandleObjectProperties2(
         if (Info->BestObjectName)
             PhShellProperties(hWnd, Info->BestObjectName->Buffer);
         else
-            PhShowError(hWnd, L"Unable to open file properties because the object is unnamed.");
+            PhShowError(hWnd, L"%s", L"Unable to open file properties because the object is unnamed.");
     }
 }

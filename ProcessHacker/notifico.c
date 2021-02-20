@@ -3,7 +3,7 @@
  *   notification icon manager
  *
  * Copyright (C) 2011-2016 wj32
- * Copyright (C) 2017-2020 dmex
+ * Copyright (C) 2017-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -230,6 +230,7 @@ VOID PhNfLoadStage2(
     PhNfRegisterIcon(NULL, PH_TRAY_ICON_ID_IO_TEXT, PhNfpTrayIconItemGuids[PH_TRAY_ICON_GUID_IO_TEXT], NULL, L"IO usage (text)", 0, PhNfpIoUsageTextIconUpdateCallback, NULL);
     PhNfRegisterIcon(NULL, PH_TRAY_ICON_ID_COMMIT_TEXT, PhNfpTrayIconItemGuids[PH_TRAY_ICON_GUID_COMMIT_TEXT], NULL, L"Commit usage (text)", 0, PhNfpCommitTextIconUpdateCallback, NULL);
     PhNfRegisterIcon(NULL, PH_TRAY_ICON_ID_PHYSICAL_TEXT, PhNfpTrayIconItemGuids[PH_TRAY_ICON_GUID_PHYSICAL_TEXT], NULL, L"Physical usage (text)", 0, PhNfpPhysicalUsageTextIconUpdateCallback, NULL);
+    PhNfRegisterIcon(NULL, PH_TRAY_ICON_ID_PLAIN_ICON, PhNfpTrayIconItemGuids[PH_TRAY_ICON_GUID_PLAIN_ICON], NULL, L"Process Hacker icon (static)", 0, PhNfpPlainIconUpdateCallback, NULL);
 
     if (PhPluginsEnabled)
     {
@@ -334,7 +335,7 @@ VOID PhNfForwardMessage(
         {
             if (PhGetIntegerSetting(L"IconSingleClick"))
             {
-                ProcessHacker_IconClick(WindowHandle);
+                ProcessHacker_IconClick();
                 PhNfpDisableHover();
             }
             else
@@ -386,7 +387,7 @@ VOID PhNfForwardMessage(
                     PhNfpDisableHover();
                 }
 
-                ProcessHacker_IconClick(WindowHandle);
+                ProcessHacker_IconClick();
             }
         }
         break;
@@ -406,7 +407,7 @@ VOID PhNfForwardMessage(
     case NIN_KEYSELECT:
         // HACK: explorer seems to send two NIN_KEYSELECT messages when the user selects the icon and presses ENTER.
         if (GetForegroundWindow() != WindowHandle)
-            ProcessHacker_IconClick(WindowHandle);
+            ProcessHacker_IconClick();
         break;
     case NIN_BALLOONUSERCLICK:
         PhShowDetailsForIconNotification();
@@ -1787,6 +1788,18 @@ VOID PhNfpPhysicalUsageTextIconUpdateCallback(
     *NewText = PhFormat(format, 5, 96);
 }
 
+VOID PhNfpPlainIconUpdateCallback(
+    _In_ struct _PH_NF_ICON *Icon,
+    _Out_ PVOID *NewIconOrBitmap,
+    _Out_ PULONG Flags,
+    _Out_ PPH_STRING *NewText,
+    _In_opt_ PVOID Context
+    )
+{
+    *NewIconOrBitmap = PhGetApplicationIcon(TRUE);
+    *NewText = PhCreateString(L"Process Hacker");
+}
+
 _Success_(return)
 BOOLEAN PhNfpGetShowMiniInfoSectionData(
     _In_ ULONG IconIndex,
@@ -1817,11 +1830,14 @@ BOOLEAN PhNfpGetShowMiniInfoSectionData(
     }
     else
     {
+        showMiniInfo = TRUE;
+
         switch (IconIndex)
         {
         case PH_TRAY_ICON_ID_CPU_HISTORY:
         case PH_TRAY_ICON_ID_CPU_USAGE:
         case PH_TRAY_ICON_ID_CPU_TEXT:
+        case PH_TRAY_ICON_ID_PLAIN_ICON:
             Data->SectionName = L"CPU";
             break;
         case PH_TRAY_ICON_ID_IO_HISTORY:
@@ -1836,9 +1852,10 @@ BOOLEAN PhNfpGetShowMiniInfoSectionData(
         case PH_TRAY_ICON_ID_PHYSICAL_TEXT:
             Data->SectionName = L"Physical memory";
             break;
+        default:
+            showMiniInfo = FALSE;
+            break;
         }
-
-        showMiniInfo = TRUE;
     }
 
     return showMiniInfo;

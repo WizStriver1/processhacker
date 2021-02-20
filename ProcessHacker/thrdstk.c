@@ -3,7 +3,7 @@
  *   thread stack viewer
  *
  * Copyright (C) 2010-2016 wj32
- * Copyright (C) 2017-2020 dmex
+ * Copyright (C) 2017-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -98,6 +98,7 @@ typedef struct _THREAD_STACK_ITEM
     PH_THREAD_STACK_FRAME StackFrame;
     ULONG Index;
     PPH_STRING Symbol;
+    PPH_STRING FileName;
 } THREAD_STACK_ITEM, *PTHREAD_STACK_ITEM;
 
 typedef enum _PH_STACK_TREE_COLUMN_ITEM_NAME
@@ -112,6 +113,7 @@ typedef enum _PH_STACK_TREE_COLUMN_ITEM_NAME
     PH_STACK_TREE_COLUMN_PARAMETER4,
     PH_STACK_TREE_COLUMN_CONTROLADDRESS,
     PH_STACK_TREE_COLUMN_RETURNADDRESS,
+    PH_STACK_TREE_COLUMN_FILENAME,
     TREE_COLUMN_ITEM_MAXIMUM
 } PH_STACK_TREE_COLUMN_ITEM_NAME;
 
@@ -125,6 +127,7 @@ typedef struct _PH_STACK_TREE_ROOT_NODE
     PPH_STRING TooltipText;
     PPH_STRING IndexString;
     PPH_STRING SymbolString;
+    PPH_STRING FileNameString;
     WCHAR StackAddressString[PH_PTR_STR_LEN_1];
     WCHAR FrameAddressString[PH_PTR_STR_LEN_1];
     WCHAR Parameter1String[PH_PTR_STR_LEN_1];
@@ -136,6 +139,12 @@ typedef struct _PH_STACK_TREE_ROOT_NODE
 
     PH_STRINGREF TextCache[TREE_COLUMN_ITEM_MAXIMUM];
 } PH_STACK_TREE_ROOT_NODE, *PPH_STACK_TREE_ROOT_NODE;
+
+typedef enum _PH_THREAD_STACK_MENUITEM
+{
+    PH_THREAD_STACK_MENUITEM_INSPECT = 1,
+    PH_THREAD_STACK_MENUITEM_OPENFILELOCATION,
+} PH_THREAD_STACK_MENUITEM;
 
 INT_PTR CALLBACK PhpThreadStackDlgProc(
     _In_ HWND hwndDlg,
@@ -475,6 +484,9 @@ BOOLEAN NTAPI ThreadStackTreeNewCallback(
             case PH_STACK_TREE_COLUMN_RETURNADDRESS:
                 PhInitializeStringRefLongHint(&getCellText->Text, node->ReturnAddressString);
                 break;
+            case PH_STACK_TREE_COLUMN_FILENAME:
+                getCellText->Text = PhGetStringRef(node->FileNameString);
+                break;
             default:
                 return FALSE;
             }
@@ -666,7 +678,7 @@ VOID GetSelectedThreadStackNodes(
 
 BOOLEAN PhpThreadStackTreeFilterCallback(
     _In_ PPH_TREENEW_NODE Node,
-    _In_opt_ PVOID Context
+    _In_ PVOID Context
     )
 {
     PPH_THREAD_STACK_CONTEXT stackContext = Context;
@@ -706,6 +718,7 @@ VOID InitializeThreadStackTree(
     PhAddTreeNewColumn(Context->TreeNewHandle, PH_STACK_TREE_COLUMN_PARAMETER4, FALSE, L"Stack parameter #4", 100, PH_ALIGN_LEFT, ULONG_MAX, 0);
     PhAddTreeNewColumn(Context->TreeNewHandle, PH_STACK_TREE_COLUMN_CONTROLADDRESS, FALSE, L"Control address", 100, PH_ALIGN_LEFT, ULONG_MAX, 0);
     PhAddTreeNewColumn(Context->TreeNewHandle, PH_STACK_TREE_COLUMN_RETURNADDRESS, FALSE, L"Return address", 100, PH_ALIGN_LEFT, ULONG_MAX, 0);
+    PhAddTreeNewColumn(Context->TreeNewHandle, PH_STACK_TREE_COLUMN_FILENAME, FALSE, L"File name", 100, PH_ALIGN_LEFT, ULONG_MAX, 0);
 
     TreeNew_SetTriState(Context->TreeNewHandle, FALSE);
     TreeNew_SetSort(Context->TreeNewHandle, PH_STACK_TREE_COLUMN_INDEX, AscendingSortOrder);
@@ -766,7 +779,7 @@ VOID PhShowThreadStackDialog(
     // but KProcessHacker is not loaded, show an error message.
     if (ProcessId == SYSTEM_PROCESS_ID && !KphIsConnected())
     {
-        PhShowError2(ParentWindowHandle, PH_KPH_ERROR_TITLE, PH_KPH_ERROR_MESSAGE);
+        PhShowError2(ParentWindowHandle, PH_KPH_ERROR_TITLE, L"%s", PH_KPH_ERROR_MESSAGE);
         return;
     }
 
@@ -798,9 +811,7 @@ VOID PhShowThreadStackDialog(
         PhEndInitOnce(&initOnce);
     }
 
-    context = PhCreateObject(sizeof(PH_THREAD_STACK_CONTEXT), PhThreadStackContextType);
-    memset(context, 0, sizeof(PH_THREAD_STACK_CONTEXT));
-
+    context = PhCreateObjectZero(sizeof(PH_THREAD_STACK_CONTEXT), PhThreadStackContextType);
     context->List = PhCreateList(10);
     context->NewList = PhCreateList(10);
     PhInitializeQueuedLock(&context->StatusLock);
@@ -956,15 +967,6 @@ INT_PTR CALLBACK PhpThreadStackDlgProc(
                     }
                 }
                 break;
-            case IDC_COPY:
-                {
-                    PPH_STRING text;
-
-                    text = PhGetTreeNewText(context->TreeNewHandle, 0);
-                    PhSetClipboardString(context->TreeNewHandle, &text->sr);
-                    PhDereferenceObject(text);
-                }
-                break;
             case WM_PH_SHOWSTACKMENU:
                 {
                     PPH_EMENU menu;
@@ -975,13 +977,17 @@ INT_PTR CALLBACK PhpThreadStackDlgProc(
                     if (selectedNode = GetSelectedThreadStackNode(context))
                     {
                         menu = PhCreateEMenu();
+                        PhInsertEMenuItem(menu, PhCreateEMenuItem(PH_EMENU_DEFAULT, PH_THREAD_STACK_MENUITEM_INSPECT, L"&Inspect", NULL, NULL), ULONG_MAX);
+                        PhInsertEMenuItem(menu, PhCreateEMenuSeparator(), ULONG_MAX);
+                        PhInsertEMenuItem(menu, PhCreateEMenuItem(0, PH_THREAD_STACK_MENUITEM_OPENFILELOCATION, L"Open &file location", NULL, NULL), ULONG_MAX);
+                        PhInsertEMenuItem(menu, PhCreateEMenuSeparator(), ULONG_MAX);
                         PhInsertEMenuItem(menu, PhCreateEMenuItem(0, IDC_COPY, L"Copy", NULL, NULL), ULONG_MAX);
                         PhInsertCopyCellEMenuItem(menu, IDC_COPY, context->TreeNewHandle, contextMenuEvent->Column);
 
                         selectedItem = PhShowEMenu(
                             menu,
                             hwndDlg,
-                            PH_EMENU_SHOW_SEND_COMMAND | PH_EMENU_SHOW_LEFTRIGHT,
+                            PH_EMENU_SHOW_LEFTRIGHT,
                             PH_ALIGN_LEFT | PH_ALIGN_TOP,
                             contextMenuEvent->Location.x,
                             contextMenuEvent->Location.y
@@ -992,6 +998,50 @@ INT_PTR CALLBACK PhpThreadStackDlgProc(
                             BOOLEAN handled = FALSE;
 
                             handled = PhHandleCopyCellEMenuItem(selectedItem);
+
+                            if (handled)
+                                break;
+
+                            switch (selectedItem->Id)
+                            {
+                            case PH_THREAD_STACK_MENUITEM_INSPECT:
+                                {
+                                    if (!PhIsNullOrEmptyString(selectedNode->FileNameString) && PhDoesFileExistsWin32(PhGetString(selectedNode->FileNameString)))
+                                    {
+                                        PhShellExecuteUserString(
+                                            hwndDlg,
+                                            L"ProgramInspectExecutables",
+                                            PhGetString(selectedNode->FileNameString),
+                                            FALSE,
+                                            L"Make sure the PE Viewer executable file is present."
+                                            );
+                                    }
+                                }
+                                break;
+                            case PH_THREAD_STACK_MENUITEM_OPENFILELOCATION:
+                                {
+                                    if (!PhIsNullOrEmptyString(selectedNode->FileNameString) && PhDoesFileExistsWin32(PhGetString(selectedNode->FileNameString)))
+                                    {
+                                        PhShellExecuteUserString(
+                                            hwndDlg,
+                                            L"FileBrowseExecutable",
+                                            PhGetString(selectedNode->FileNameString),
+                                            FALSE,
+                                            L"Make sure the Explorer executable file is present."
+                                            );
+                                    }
+                                }
+                                break;
+                            case IDC_COPY:
+                                {
+                                    PPH_STRING text;
+
+                                    text = PhGetTreeNewText(context->TreeNewHandle, 0);
+                                    PhSetClipboardString(context->TreeNewHandle, &text->sr);
+                                    PhDereferenceObject(text);
+                                }
+                                break;
+                            }
                         }
 
                         PhDestroyEMenu(menu);
@@ -1085,6 +1135,7 @@ VOID PhpFreeThreadStackItem(
     )
 {
     if (StackItem->Symbol) PhDereferenceObject(StackItem->Symbol);
+    if (StackItem->FileName) PhDereferenceObject(StackItem->FileName);
     PhFree(StackItem);
 }
 
@@ -1095,6 +1146,7 @@ BOOLEAN NTAPI PhpWalkThreadStackCallback(
 {
     PPH_THREAD_STACK_CONTEXT threadStackContext = (PPH_THREAD_STACK_CONTEXT)Context;
     PPH_STRING symbol;
+    PPH_STRING fileName = NULL;
     PTHREAD_STACK_ITEM item;
 
     if (!threadStackContext)
@@ -1110,7 +1162,7 @@ BOOLEAN NTAPI PhpWalkThreadStackCallback(
         threadStackContext->SymbolProvider,
         (ULONG64)StackFrame->PcAddress,
         NULL,
-        NULL,
+        &fileName,
         NULL,
         NULL
         );
@@ -1140,6 +1192,7 @@ BOOLEAN NTAPI PhpWalkThreadStackCallback(
     }
 
     item->Symbol = symbol;
+    item->FileName = fileName;
     PhAddItemList(threadStackContext->NewList, item);
 
     return TRUE;
@@ -1333,7 +1386,7 @@ VOID PhpSymbolProviderEventCallbackHandler(
         break;
     }
 
-    if (statusMessage)
+    if (context && statusMessage)
     {
         //dprintf("%S\r\n", statusMessage->Buffer);
         PhAcquireQueuedLockExclusive(&context->StatusLock);
@@ -1493,9 +1546,6 @@ static NTSTATUS PhpRefreshThreadStack(
             stackNode = AddThreadStackNode(Context, item->Index);
             stackNode->StackFrame = item->StackFrame;
 
-            if (!PhIsNullOrEmptyString(item->Symbol))
-                stackNode->SymbolString = PhReferenceObject(item->Symbol);
-
             if (item->StackFrame.StackAddress)
                 PhPrintPointer(stackNode->StackAddressString, item->StackFrame.StackAddress);
             if (item->StackFrame.FrameAddress)
@@ -1515,6 +1565,16 @@ static NTSTATUS PhpRefreshThreadStack(
             if (item->StackFrame.ReturnAddress)
                 PhPrintPointer(stackNode->ReturnAddressString, item->StackFrame.ReturnAddress);
 
+            if (!PhIsNullOrEmptyString(item->Symbol))
+                stackNode->SymbolString = PhReferenceObject(item->Symbol);
+            else
+                PhClearReference(&item->Symbol);
+
+            if (!PhIsNullOrEmptyString(item->FileName))
+                stackNode->FileNameString = PhReferenceObject(item->FileName);
+            else
+                PhClearReference(&item->FileName);
+            
             UpdateThreadStackNode(Context, stackNode);
         }
 

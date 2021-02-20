@@ -297,6 +297,27 @@ typedef struct _PH_STATISTICS_CONTEXT
     BOOLEAN Enabled;
     HANDLE ProcessHandle;
     PPH_PROCESS_ITEM ProcessItem;
+
+    BOOLEAN GotCycles;
+    BOOLEAN GotWsCounters;
+    BOOLEAN GotUptime;
+
+    ULONG PagePriority;
+    IO_PRIORITY_HINT IoPriority;
+    ULONG PeakHandleCount;
+    ULONG HangCount;
+    ULONG GhostCount;
+    ULONGLONG RunningTime;
+    ULONGLONG SuspendedTime;
+
+    PPH_STRING Cycles;
+    PPH_STRING PrivateWs;
+    PPH_STRING ShareableWs;
+    PPH_STRING SharedWs;
+    PPH_STRING PeakHandles;
+    PPH_STRING GdiHandles;
+    PPH_STRING UserHandles;
+    PSYSTEM_PROCESS_INFORMATION_EXTENSION ProcessExtension;
 } PH_STATISTICS_CONTEXT, *PPH_STATISTICS_CONTEXT;
 
 #define WM_PH_PERFORMANCE_UPDATE (WM_APP + 241)
@@ -333,19 +354,6 @@ typedef struct _PH_ENVIRONMENT_CONTEXT
     HWND TreeNewHandle;
     HWND SearchWindowHandle;
 
-    PPH_PROCESS_ITEM ProcessItem;   
-    PPH_STRING SearchboxText;
-    PPH_STRING StatusMessage;
-
-    PPH_LIST NodeList;
-    PPH_LIST NodeRootList;
-    PPH_HASHTABLE NodeHashtable;
-    PPH_TN_FILTER_ENTRY TreeFilterEntry;
-    ULONG TreeNewSortColumn;
-    PH_TN_FILTER_SUPPORT TreeFilterSupport;
-    PH_SORT_ORDER TreeNewSortOrder;
-    PH_CM_MANAGER Cm;
-
     BOOLEAN EnableStateHighlighting;
 
     union
@@ -366,8 +374,19 @@ typedef struct _PH_ENVIRONMENT_CONTEXT
         };
     };
 
-    PVOID SystemDefaultEnvironment;
-    PVOID UserDefaultEnvironment;
+    PPH_PROCESS_ITEM ProcessItem;   
+    PPH_STRING SearchboxText;
+    PPH_STRING StatusMessage;
+
+    PPH_LIST NodeList;
+    PPH_LIST NodeRootList;
+    PPH_HASHTABLE NodeHashtable;
+    PPH_TN_FILTER_ENTRY TreeFilterEntry;
+    ULONG TreeNewSortColumn;
+    PH_TN_FILTER_SUPPORT TreeFilterSupport;
+    PH_SORT_ORDER TreeNewSortOrder;
+    PH_CM_MANAGER Cm;
+
     PH_ARRAY Items;
 } PH_ENVIRONMENT_CONTEXT, *PPH_ENVIRONMENT_CONTEXT;
 

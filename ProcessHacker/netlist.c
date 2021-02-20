@@ -45,7 +45,8 @@ ULONG PhpNetworkNodeHashtableHashFunction(
     );
 
 VOID PhpRemoveNetworkNode(
-    _In_ PPH_NETWORK_NODE NetworkNode
+    _In_ PPH_NETWORK_NODE NetworkNode,
+    _In_opt_ PVOID Context
     );
 
 LONG PhpNetworkTreeNewPostSortFunction(
@@ -121,6 +122,7 @@ VOID PhInitializeNetworkTreeList(
     SendMessage(TreeNew_GetTooltips(NetworkTreeListHandle), TTM_SETDELAYTIME, TTDT_AUTOPOP, MAXSHORT);
 
     TreeNew_SetCallback(hwnd, PhpNetworkTreeNewCallback, NULL);
+    TreeNew_SetImageList(hwnd, PhProcessSmallImageList);
 
     TreeNew_SetRedraw(hwnd, FALSE);
 
@@ -278,12 +280,13 @@ VOID PhRemoveNetworkNode(
     }
     else
     {
-        PhpRemoveNetworkNode(NetworkNode);
+        PhpRemoveNetworkNode(NetworkNode, NULL);
     }
 }
 
 VOID PhpRemoveNetworkNode(
-    _In_ PPH_NETWORK_NODE NetworkNode
+    _In_ PPH_NETWORK_NODE NetworkNode,
+    _In_opt_ PVOID Context
     )
 {
     ULONG index;
@@ -329,7 +332,7 @@ VOID PhTickNetworkNodes(
         TreeNew_NodesStructured(NetworkTreeListHandle);
     }
 
-    PH_TICK_SH_STATE_TN(PH_NETWORK_NODE, ShState, NetworkNodeStateList, PhpRemoveNetworkNode, PhCsHighlightingDuration, NetworkTreeListHandle, TRUE, NULL);
+    PH_TICK_SH_STATE_TN(PH_NETWORK_NODE, ShState, NetworkNodeStateList, PhpRemoveNetworkNode, PhCsHighlightingDuration, NetworkTreeListHandle, TRUE, NULL, NULL);
 }
 
 #define SORT_FUNCTION(Column) PhpNetworkTreeNewCompare##Column
@@ -554,7 +557,16 @@ BOOLEAN NTAPI PhpNetworkTreeNewCallback(
                 PhInitializeStringRefLongHint(&getCellText->Text, networkItem->LocalAddressString);
                 break;
             case PHNETLC_LOCALHOSTNAME:
-                getCellText->Text = PhGetStringRef(networkItem->LocalHostString);
+                {
+                    if (networkItem->LocalHostString)
+                    {
+                        getCellText->Text = PhGetStringRef(networkItem->LocalHostString);
+                    }
+                    else
+                    {
+                        PhInitializeStringRef(&getCellText->Text, L"Resolving....");
+                    }
+                }
                 break;
             case PHNETLC_LOCALPORT:
                 PhInitializeStringRefLongHint(&getCellText->Text, networkItem->LocalPortString);
@@ -563,7 +575,16 @@ BOOLEAN NTAPI PhpNetworkTreeNewCallback(
                 PhInitializeStringRefLongHint(&getCellText->Text, networkItem->RemoteAddressString);
                 break;
             case PHNETLC_REMOTEHOSTNAME:
-                getCellText->Text = PhGetStringRef(networkItem->RemoteHostString);
+                {
+                    if (networkItem->RemoteHostString)
+                    {
+                        getCellText->Text = PhGetStringRef(networkItem->RemoteHostString);
+                    }
+                    else
+                    {
+                        PhInitializeStringRef(&getCellText->Text, L"Resolving....");
+                    }
+                }
                 break;
             case PHNETLC_REMOTEPORT:
                 PhInitializeStringRefLongHint(&getCellText->Text, networkItem->RemotePortString);
@@ -624,16 +645,7 @@ BOOLEAN NTAPI PhpNetworkTreeNewCallback(
                 break;
 
             node = (PPH_NETWORK_NODE)getNodeIcon->Node;
-
-            if (node->NetworkItem->ProcessIconValid && node->NetworkItem->ProcessIcon)
-            {
-                getNodeIcon->Icon = node->NetworkItem->ProcessIcon;
-            }
-            else
-            {
-                PhGetStockApplicationIcon(&getNodeIcon->Icon, NULL);
-            }
-
+            getNodeIcon->Icon = (HICON)(ULONG_PTR)node->NetworkItem->ProcessIconIndex;
             getNodeIcon->Flags = TN_CACHE;
         }
         return TRUE;

@@ -35,6 +35,7 @@
 #include <mainwnd.h>
 #include <phplug.h>
 #include <phsettings.h>
+#include <procprv.h>
 #include <srvprv.h>
 
 BOOLEAN PhpServiceNodeHashtableEqualFunction(
@@ -47,7 +48,8 @@ ULONG PhpServiceNodeHashtableHashFunction(
     );
 
 VOID PhpRemoveServiceNode(
-    _In_ PPH_SERVICE_NODE ServiceNode
+    _In_ PPH_SERVICE_NODE ServiceNode,
+    _In_opt_ PVOID Context
     );
 
 LONG PhpServiceTreeNewPostSortFunction(
@@ -74,10 +76,6 @@ static PPH_HASHTABLE ServiceNodeHashtable; // hashtable of all nodes
 static PPH_LIST ServiceNodeList; // list of all nodes
 
 static PH_TN_FILTER_SUPPORT FilterSupport;
-
-static BOOLEAN ServiceIconsLoaded = FALSE;
-static HICON ServiceApplicationIcon;
-static HICON ServiceCogIcon;
 
 BOOLEAN PhServiceTreeListStateHighlighting = TRUE;
 static PPH_POINTER_LIST ServiceNodeStateList = NULL; // list of nodes which need to be processed
@@ -122,6 +120,7 @@ VOID PhInitializeServiceTreeList(
     SendMessage(TreeNew_GetTooltips(ServiceTreeListHandle), TTM_SETDELAYTIME, TTDT_AUTOPOP, MAXSHORT);
 
     TreeNew_SetCallback(hwnd, PhpServiceTreeNewCallback, NULL);
+    TreeNew_SetImageList(hwnd, PhProcessSmallImageList);
 
     TreeNew_SetRedraw(hwnd, FALSE);
 
@@ -144,6 +143,7 @@ VOID PhInitializeServiceTreeList(
 
     TreeNew_SetRedraw(hwnd, TRUE);
 
+    TreeNew_SetTriState(hwnd, TRUE);
     TreeNew_SetSort(hwnd, 0, AscendingSortOrder);
 
     PhCmInitializeManager(&ServiceTreeListCm, hwnd, PHSVTLC_MAXIMUM, PhpServiceTreeNewPostSortFunction);
@@ -279,12 +279,13 @@ VOID PhRemoveServiceNode(
     }
     else
     {
-        PhpRemoveServiceNode(ServiceNode);
+        PhpRemoveServiceNode(ServiceNode, NULL);
     }
 }
 
 VOID PhpRemoveServiceNode(
-    _In_ PPH_SERVICE_NODE ServiceNode
+    _In_ PPH_SERVICE_NODE ServiceNode,
+    _In_opt_ PVOID Context
     )
 {
     ULONG index;
@@ -332,7 +333,7 @@ VOID PhTickServiceNodes(
         TreeNew_NodesStructured(ServiceTreeListHandle);
     }
 
-    PH_TICK_SH_STATE_TN(PH_SERVICE_NODE, ShState, ServiceNodeStateList, PhpRemoveServiceNode, PhCsHighlightingDuration, ServiceTreeListHandle, TRUE, NULL);
+    PH_TICK_SH_STATE_TN(PH_SERVICE_NODE, ShState, ServiceNodeStateList, PhpRemoveServiceNode, PhCsHighlightingDuration, ServiceTreeListHandle, TRUE, NULL, NULL);
 }
 
 static VOID PhpUpdateServiceNodeConfig(
@@ -726,7 +727,14 @@ BOOLEAN NTAPI PhpServiceTreeNewCallback(
                 }
                 break;
             case PHSVTLC_PID:
-                PhInitializeStringRefLongHint(&getCellText->Text, serviceItem->ProcessIdString);
+                {
+                    if (serviceItem->ProcessId)
+                        PhPrintUInt32(serviceItem->ProcessIdString, HandleToUlong(serviceItem->ProcessId));
+                    else
+                        serviceItem->ProcessIdString[0] = UNICODE_NULL;
+
+                    PhInitializeStringRefLongHint(&getCellText->Text, serviceItem->ProcessIdString);
+                }
                 break;
             case PHSVTLC_BINARYPATH:
                 PhpUpdateServiceNodeConfig(node);
@@ -781,26 +789,16 @@ BOOLEAN NTAPI PhpServiceTreeNewCallback(
 
             node = (PPH_SERVICE_NODE)getNodeIcon->Node;
 
-            if (!ServiceIconsLoaded)
+            if (node->ServiceItem->IconEntry)
             {
-                HICON icon;
-
-                PhGetStockApplicationIcon(&icon, NULL);
-
-                ServiceApplicationIcon = icon;
-                ServiceCogIcon = PH_LOAD_SHARED_ICON_SMALL(PhInstanceHandle, MAKEINTRESOURCE(IDI_COG));
-
-                ServiceIconsLoaded = TRUE;
+                getNodeIcon->Icon = (HICON)(ULONG_PTR)node->ServiceItem->IconEntry->SmallIconIndex;
             }
-
-            if (node->ServiceItem->SmallIcon)
-                getNodeIcon->Icon = node->ServiceItem->SmallIcon;
             else
             {
                 if (node->ServiceItem->Type == SERVICE_KERNEL_DRIVER || node->ServiceItem->Type == SERVICE_FILE_SYSTEM_DRIVER)
-                    getNodeIcon->Icon = ServiceCogIcon;
+                    getNodeIcon->Icon = (HICON)(ULONG_PTR)1;// ServiceCogIcon;
                 else
-                    getNodeIcon->Icon = ServiceApplicationIcon;
+                    getNodeIcon->Icon = (HICON)(ULONG_PTR)0;//ServiceApplicationIcon;
             }
 
             getNodeIcon->Flags = TN_CACHE;

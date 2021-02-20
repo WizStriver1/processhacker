@@ -48,9 +48,6 @@
     <ClCompile Include="options.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="wswatch.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="treeext.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -91,6 +88,15 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="counters.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="fwmon.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="fwtab.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="wswatch.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

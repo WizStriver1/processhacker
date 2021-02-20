@@ -3,7 +3,7 @@
  *   Process properties: Memory page
  *
  * Copyright (C) 2009-2016 wj32
- * Copyright (C) 2017-2019 dmex
+ * Copyright (C) 2017-2021 dmex
  *
  * This file is part of Process Hacker.
  *
@@ -500,17 +500,15 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                     {
                         PPH_SHOW_MEMORY_EDITOR showMemoryEditor;
 
-                        showMemoryEditor = PhAllocate(sizeof(PH_SHOW_MEMORY_EDITOR));
-                        memset(showMemoryEditor, 0, sizeof(PH_SHOW_MEMORY_EDITOR));
-
+                        showMemoryEditor = PhAllocateZero(sizeof(PH_SHOW_MEMORY_EDITOR));
                         showMemoryEditor->OwnerWindow = hwndDlg;
                         showMemoryEditor->ProcessId = processItem->ProcessId;
                         showMemoryEditor->BaseAddress = memoryNode->MemoryItem->BaseAddress;
                         showMemoryEditor->RegionSize = memoryNode->MemoryItem->RegionSize;
-                        showMemoryEditor->SelectOffset = -1;
+                        showMemoryEditor->SelectOffset = ULONG_MAX;
                         showMemoryEditor->SelectLength = 0;
 
-                        ProcessHacker_ShowMemoryEditor(PhMainWndHandle, showMemoryEditor);
+                        ProcessHacker_ShowMemoryEditor(showMemoryEditor);
                     }
                 }
                 break;
@@ -632,9 +630,13 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                     if (memoryNode)
                     {
                         PhReferenceObject(memoryNode->MemoryItem);
-                        PhUiFreeMemory(hwndDlg, processItem->ProcessId, memoryNode->MemoryItem, TRUE);
+
+                        if (PhUiFreeMemory(hwndDlg, processItem->ProcessId, memoryNode->MemoryItem, TRUE))
+                        {
+                            PhRemoveMemoryNode(&memoryContext->ListContext, &memoryContext->MemoryItemList, memoryNode);
+                        }
+
                         PhDereferenceObject(memoryNode->MemoryItem);
-                        // TODO: somehow update the list
                     }
                 }
                 break;
@@ -645,7 +647,12 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                     if (memoryNode)
                     {
                         PhReferenceObject(memoryNode->MemoryItem);
-                        PhUiFreeMemory(hwndDlg, processItem->ProcessId, memoryNode->MemoryItem, FALSE);
+
+                        if (PhUiFreeMemory(hwndDlg, processItem->ProcessId, memoryNode->MemoryItem, FALSE))
+                        {
+                            PhRemoveMemoryNode(&memoryContext->ListContext, &memoryContext->MemoryItemList, memoryNode);
+                        }
+
                         PhDereferenceObject(memoryNode->MemoryItem);
                     }
                 }
@@ -688,6 +695,7 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                         PH_MEMORY_FILTER_MENU_HIDE_GUARD,
                         // Non-standard PH_MEMORY_FLAG options.
                         PH_MEMORY_FILTER_MENU_READ_ADDRESS,
+                        PH_MEMORY_FILTER_MENU_HEAPS,
                         PH_MEMORY_FILTER_MENU_STRINGS,
                     } PH_MEMORY_FILTER_MENU_ITEM;
 
@@ -702,7 +710,7 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                     PhInsertEMenuItem(menu, typeItem = PhCreateEMenuItem(0, PH_MEMORY_FILTER_MENU_HIGHLIGHT_EXECUTE, L"Highlight executable pages", NULL, NULL), ULONG_MAX);
                     PhInsertEMenuItem(menu, PhCreateEMenuSeparator(), ULONG_MAX);
                     PhInsertEMenuItem(menu, PhCreateEMenuItem(0, PH_MEMORY_FILTER_MENU_READ_ADDRESS, L"Read/Write &address...", NULL, NULL), ULONG_MAX);
-                    PhInsertEMenuItem(menu, PhCreateEMenuSeparator(), ULONG_MAX);
+                    PhInsertEMenuItem(menu, PhCreateEMenuItem(0, PH_MEMORY_FILTER_MENU_HEAPS, L"Heaps...", NULL, NULL), ULONG_MAX);
                     PhInsertEMenuItem(menu, PhCreateEMenuItem(0, PH_MEMORY_FILTER_MENU_STRINGS, L"Strings...", NULL, NULL), ULONG_MAX);
 
                     if (memoryContext->ListContext.HideFreeRegions)
@@ -749,6 +757,10 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
                         {
                             PhShowMemoryStringDialog(hwndDlg, processItem);
                         }
+                        else if (selectedItem->Id == PH_MEMORY_FILTER_MENU_HEAPS)
+                        {
+                            PhShowProcessHeapsDialog(hwndDlg, processItem);
+                        }
                         else if (selectedItem->Id == PH_MEMORY_FILTER_MENU_READ_ADDRESS)
                         {
                             PPH_STRING selectedChoice = NULL;
@@ -784,20 +796,21 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
 
                                     if (memoryItem)
                                     {
-                                        PPH_SHOW_MEMORY_EDITOR showMemoryEditor = PhAllocate(sizeof(PH_SHOW_MEMORY_EDITOR));
+                                        PPH_SHOW_MEMORY_EDITOR showMemoryEditor;
 
-                                        memset(showMemoryEditor, 0, sizeof(PH_SHOW_MEMORY_EDITOR));
+                                        showMemoryEditor = PhAllocateZero(sizeof(PH_SHOW_MEMORY_EDITOR));
                                         showMemoryEditor->ProcessId = processItem->ProcessId;
                                         showMemoryEditor->BaseAddress = memoryItem->BaseAddress;
                                         showMemoryEditor->RegionSize = memoryItem->RegionSize;
                                         showMemoryEditor->SelectOffset = (ULONG)((ULONG_PTR)address - (ULONG_PTR)memoryItem->BaseAddress);
                                         showMemoryEditor->SelectLength = 0;
-                                        ProcessHacker_ShowMemoryEditor(PhMainWndHandle, showMemoryEditor);
+
+                                        ProcessHacker_ShowMemoryEditor(showMemoryEditor);
                                         break;
                                     }
                                     else
                                     {
-                                        PhShowError(hwndDlg, L"Unable to find the memory region for the selected address.");
+                                        PhShowError(hwndDlg, L"%s", L"Unable to find the memory region for the selected address.");
                                     }
                                 }
                             }
@@ -817,7 +830,7 @@ INT_PTR CALLBACK PhpProcessMemoryDlgProc(
             switch (header->code)
             {
             case PSN_QUERYINITIALFOCUS:
-                SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, (LPARAM)GetDlgItem(hwndDlg, IDC_LIST));
+                SetWindowLongPtr(hwndDlg, DWLP_MSGRESULT, (LPARAM)memoryContext->TreeNewHandle);
                 return TRUE;
             }
         }

@@ -543,10 +543,7 @@ VOID PhShowMemoryStringDialog(
         showMemoryResults->Results = context.Results;
 
         PhReferenceObject(context.Results);
-        ProcessHacker_ShowMemoryResults(
-            PhMainWndHandle,
-            showMemoryResults
-            );
+        ProcessHacker_ShowMemoryResults(showMemoryResults);
     }
 
     PhDereferenceObject(context.Results);
@@ -610,7 +607,7 @@ INT_PTR CALLBACK PhpMemoryStringDlgProc(
 
                     if (minimumLength < 4)
                     {
-                        PhShowError(hwndDlg, L"The minimum length must be at least 4.");
+                        PhShowError(hwndDlg, L"%s", L"The minimum length must be at least 4.");
                         break;
                     }
 
